@@ -1,0 +1,10 @@
+# Local dev artifacts
+*.exe
+*.test
+/out/
+
+# Secrets — never commit
+.env
+*.pem
+*.key
+*.crt

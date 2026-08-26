@@ -1,0 +1,188 @@
+package proxy
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+// upstreamStub asserts the two-token contract: every proxied request must
+// carry BOTH X-Internal-Token (injected by this console) and
+// X-Reviewer-Token (presented by the reviewer's browser).
+type upstreamStub struct {
+	t             *testing.T
+	gotInternal   string
+	gotReviewer   string
+	gotPath       string
+	gotBody       map[string]any
+	statusCode    int
+	contentType   string
+	responseBytes []byte
+}
+
+func (u *upstreamStub) handler(w http.ResponseWriter, r *http.Request) {
+	u.gotInternal = r.Header.Get("X-Internal-Token")
+	u.gotReviewer = r.Header.Get("X-Reviewer-Token")
+	u.gotPath = r.URL.Path
+	if r.Body != nil {
+		b, _ := io.ReadAll(r.Body)
+		if len(b) > 0 {
+			_ = json.Unmarshal(b, &u.gotBody)
+		}
+	}
+	if u.contentType != "" {
+		w.Header().Set("Content-Type", u.contentType)
+	}
+	w.WriteHeader(u.statusCode)
+	_, _ = w.Write(u.responseBytes)
+}
+
+func newTestProxy(t *testing.T, stub *upstreamStub) (*ReviewerProxy, *httptest.Server) {
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	p := New("secret-internal-token", upstream.URL, upstream.Client())
+	t.Cleanup(upstream.Close)
+	return p, upstream
+}
+
+func TestQueue_ForwardsBothTokens(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`[{"user_id":"u1","username":"owner1"}]`)}
+	p, _ := newTestProxy(t, stub)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue", nil)
+	req.Header.Set("X-Reviewer-Token", "reviewer-token-123")
+	rec := httptest.NewRecorder()
+	p.Queue(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if stub.gotInternal != "secret-internal-token" {
+		t.Errorf("internal token not forwarded correctly: %q", stub.gotInternal)
+	}
+	if stub.gotReviewer != "reviewer-token-123" {
+		t.Errorf("reviewer token not forwarded correctly: %q", stub.gotReviewer)
+	}
+	if stub.gotPath != "/auth/kyb-kye/pending" {
+		t.Errorf("unexpected upstream path: %q", stub.gotPath)
+	}
+}
+
+func TestQueue_MissingReviewerTokenRejectedLocally(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK}
+	p, _ := newTestProxy(t, stub)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue", nil)
+	rec := httptest.NewRecorder()
+	p.Queue(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without reviewer token, got %d", rec.Code)
+	}
+	if stub.gotPath != "" {
+		t.Error("upstream must not be called when reviewer token is missing")
+	}
+}
+
+func TestReview_ValidationsBeforeUpstream(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		wantSub string
+	}{
+		{"reject without reason", `{"user_id":"u1","action":"reject","reason":""}`, "reason is required for rejection"},
+		{"whitespace reason", `{"user_id":"u1","action":"reject","reason":"   "}`, "reason is required for rejection"},
+		{"oversized reason", `{"user_id":"u1","action":"reject","reason":"` + strings.Repeat("x", 1001) + `"}`, "1000 characters"},
+		{"bad action", `{"user_id":"u1","action":"maybe"}`, "approve or reject"},
+		{"missing user", `{"action":"approve"}`, "user_id is required"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &upstreamStub{t: t, statusCode: http.StatusOK}
+			p, _ := newTestProxy(t, stub)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/review", strings.NewReader(tc.body))
+			req.Header.Set("X-Reviewer-Token", "tok")
+			rec := httptest.NewRecorder()
+			p.Review(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tc.wantSub) {
+				t.Errorf("expected error containing %q, got %s", tc.wantSub, rec.Body.String())
+			}
+			if stub.gotPath != "" {
+				t.Error("invalid review payloads must never reach auth-service")
+			}
+		})
+	}
+}
+
+func TestReview_RejectWithReasonForwarded(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`{"status":"reviewed","action":"reject"}`)}
+	p, _ := newTestProxy(t, stub)
+
+	body := `{"user_id":"u1","action":"reject","reason":"blurry document"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/review", strings.NewReader(body))
+	req.Header.Set("X-Reviewer-Token", "tok")
+	rec := httptest.NewRecorder()
+	p.Review(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if stub.gotBody["action"] != "reject" || stub.gotBody["reason"] != "blurry document" {
+		t.Errorf("payload mismatch at upstream: %+v", stub.gotBody)
+	}
+	if stub.gotInternal != "secret-internal-token" || stub.gotReviewer != "tok" {
+		t.Errorf("token contract violated: internal=%q reviewer=%q", stub.gotInternal, stub.gotReviewer)
+	}
+}
+
+func TestDocumentView_StreamsBytesThroughProxy(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+		contentType:   "image/jpeg",
+		responseBytes: []byte{0xFF, 0xD8, 0xFF, 0xE0}}
+	p, _ := newTestProxy(t, stub)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/documents/view?token=signed-view-jwt", nil)
+	req.Header.Set("X-Reviewer-Token", "tok")
+	rec := httptest.NewRecorder()
+	p.DocumentView(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "image/jpeg" {
+		t.Errorf("content type not relayed: %q", got)
+	}
+	if rec.Body.Len() != 4 || rec.Body.Bytes()[0] != 0xFF {
+		t.Errorf("document bytes not streamed intact: %v", rec.Body.Bytes())
+	}
+	if !strings.Contains(stub.gotPath, "/auth/documents/view") {
+		t.Errorf("unexpected upstream path: %q", stub.gotPath)
+	}
+}
+
+func TestDocumentView_MissingTokenRejected(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK}
+	p, _ := newTestProxy(t, stub)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/documents/view", nil)
+	req.Header.Set("X-Reviewer-Token", "tok")
+	rec := httptest.NewRecorder()
+	p.DocumentView(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing view token, got %d", rec.Code)
+	}
+	if stub.gotPath != "" {
+		t.Error("upstream must not be called when view token is missing")
+	}
+}

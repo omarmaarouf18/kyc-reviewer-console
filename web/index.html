@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KYC/KYB/KYE Reviewer Console</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <!-- Login: reviewer token only. Held in sessionStorage (dies with the tab);
+       the internal service token lives server-side and never reaches the browser
+       (ADR-0021). -->
+  <section id="login-view">
+    <form id="login-form">
+      <h1>Reviewer Console</h1>
+      <p class="muted">KYC / KYB / KYE review — internal use only</p>
+      <label for="token">Reviewer token</label>
+      <input type="password" id="token" autocomplete="off" required />
+      <button type="submit">Sign in</button>
+      <p id="login-error" class="error" hidden></p>
+    </form>
+  </section>
+
+  <section id="app-view" hidden>
+    <header>
+      <h1>Pending KYB / KYE Submissions</h1>
+      <div>
+        <span id="queue-count" class="pill"></span>
+        <button id="refresh-btn" type="button">Refresh</button>
+        <button id="logout-btn" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <p id="load-error" class="error banner" hidden></p>
+
+    <table id="queue-table">
+      <thead>
+        <tr><th>User</th><th>Role</th><th>Status</th><th>Documents</th><th>Action</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <dialog id="review-dialog">
+      <h2>Review submission</h2>
+      <p id="review-target" class="muted"></p>
+      <div class="doc-grid" id="doc-links"></div>
+      <label><input type="radio" name="action" value="approve" /> Approve</label>
+      <label><input type="radio" name="action" value="reject" checked /> Reject</label>
+      <label for="reason">Reason (required when rejecting)</label>
+      <textarea id="reason" maxlength="1000" rows="3"
+        placeholder="Explain why this submission is rejected"></textarea>
+      <p id="review-error" class="error" hidden></p>
+      <menu>
+        <button id="review-cancel" type="button">Cancel</button>
+        <button id="review-submit" type="button">Submit review</button>
+      </menu>
+    </dialog>
+  </section>
+
+  <script src="/app.js"></script>
+</body>
+</html>
