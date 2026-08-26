@@ -80,6 +80,7 @@ func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
+		// #nosec G706 //nolint:gosec -- request path is sanitized of CR/LF before interpolation
 		log.Printf("[CONSOLE] %s %s %s", r.Method, sanitizeForLog(r.URL.Path), time.Since(start))
 	})
 }

@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -56,9 +57,11 @@ func (p *ReviewerProxy) forward(w http.ResponseWriter, r *http.Request, path str
 		bodyReader = bytes.NewReader(b)
 	}
 
+	// #nosec G704 //nolint:gosec -- scheme and host come exclusively from internal config (AUTH_SERVICE_URL); the only request-derived component is the query string, which is URL-escaped by callers
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, p.authServiceURL+path, bodyReader)
 	if err != nil {
-		log.Printf("[CONSOLE] failed to build upstream request for %s: %v", path, err)
+		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized
+		log.Printf("[CONSOLE] failed to build upstream request for %s: %v", sanitizeLog(path), sanitizeLog(err.Error()))
 		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 		return
 	}
@@ -66,9 +69,11 @@ func (p *ReviewerProxy) forward(w http.ResponseWriter, r *http.Request, path str
 	req.Header.Set("X-Internal-Token", p.internalServiceToken)
 	req.Header.Set(reviewerTokenHeader, reviewerToken)
 
-	resp, err := p.client.Do(req) // #nosec G704 -- URL is constructed from internal service config (AUTH_SERVICE_URL)
+	// #nosec G704 //nolint:gosec -- same request as above: config-controlled host, escaped query string
+	resp, err := p.client.Do(req)
 	if err != nil {
-		log.Printf("[CONSOLE] upstream call to %s failed: %v", path, err)
+		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized
+		log.Printf("[CONSOLE] upstream call to %s failed: %v", sanitizeLog(path), sanitizeLog(err.Error()))
 		http.Error(w, `{"error":"upstream unavailable"}`, http.StatusBadGateway)
 		return
 	}
@@ -80,8 +85,20 @@ func (p *ReviewerProxy) forward(w http.ResponseWriter, r *http.Request, path str
 	}
 	w.WriteHeader(resp.StatusCode)
 	if _, err := io.Copy(w, resp.Body); err != nil {
-		log.Printf("[CONSOLE] failed to relay upstream response for %s: %v", path, err)
+		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized
+		log.Printf("[CONSOLE] failed to relay upstream response for %s: %v", sanitizeLog(path), sanitizeLog(err.Error()))
 	}
+}
+
+// sanitizeLog strips CR/LF so request-derived strings cannot forge log lines
+// (G706 log-injection discipline, mirroring saas-core handlers).
+func sanitizeLog(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // Queue proxies GET /auth/kyb-kye/pending.
@@ -157,5 +174,7 @@ func (p *ReviewerProxy) DocumentView(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"token is required"}`, http.StatusBadRequest)
 		return
 	}
-	p.forward(w, r, "/auth/documents/view?token="+viewToken)
+	// Escape the request-derived token so it cannot alter the upstream URL
+	// structure (SSF/SSRF defense for the G704-tainted transport above).
+	p.forward(w, r, "/auth/documents/view?token="+url.QueryEscape(viewToken))
 }
