@@ -1,7 +1,9 @@
 # kyc-reviewer-console — internal reviewer console (saas-core ADR-0021)
 FROM golang:1.26-alpine AS build
 WORKDIR /src
-COPY go.mod go.sum ./
+# The module is stdlib-only today; go.sum does not exist yet. Re-add a COPY
+# for go.sum if an external dependency is ever introduced.
+COPY go.mod ./
 RUN go mod download
 COPY cmd/ cmd/
 COPY internal/ internal/
