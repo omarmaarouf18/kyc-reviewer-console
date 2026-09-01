@@ -22,24 +22,93 @@
   </section>
 
   <section id="app-view" hidden>
-    <header>
-      <h1>Pending KYB / KYE Submissions</h1>
-      <div>
-        <span id="queue-count" class="pill"></span>
-        <button id="refresh-btn" type="button">Refresh</button>
-        <button id="logout-btn" type="button">Sign out</button>
+    <div class="top-bar">
+      <div class="brand">
+        <h1>Reviewer Console</h1>
+        <span class="muted">Identity & Account Governance</span>
       </div>
-    </header>
+      <div>
+        <button id="logout-btn" type="button" class="secondary">Sign out</button>
+      </div>
+    </div>
 
-    <p id="load-error" class="error banner" hidden></p>
+    <nav class="tabs">
+      <button id="tab-queue-btn" class="tab-btn active" type="button">
+        Pending Submissions <span id="queue-badge" class="pill">0</span>
+      </button>
+      <button id="tab-accounts-btn" class="tab-btn" type="button">
+        Accounts Directory
+      </button>
+    </nav>
 
-    <table id="queue-table">
-      <thead>
-        <tr><th>User</th><th>Role</th><th>Status</th><th>Documents</th><th>Action</th></tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <!-- TAB 1: Pending Queue -->
+    <section id="queue-section">
+      <header>
+        <h2>Pending Submissions</h2>
+        <button id="refresh-queue-btn" type="button">Refresh Queue</button>
+      </header>
 
+      <p id="queue-error" class="error banner" hidden></p>
+
+      <table id="queue-table">
+        <thead>
+          <tr><th>User</th><th>Role</th><th>Status</th><th>Documents</th><th>Action</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- TAB 2: Accounts Directory -->
+    <section id="accounts-section" hidden>
+      <header>
+        <h2>Accounts Directory</h2>
+        <button id="refresh-accounts-btn" type="button">Refresh</button>
+      </header>
+
+      <form id="accounts-filter-form" class="toolbar">
+        <input type="text" id="accounts-search-input" placeholder="Search username, email, or user ID..." autocomplete="off" />
+        <select id="accounts-role-filter">
+          <option value="">All Roles</option>
+          <option value="owner">Owner</option>
+          <option value="employee">Employee</option>
+          <option value="user">User</option>
+        </select>
+        <select id="accounts-status-filter">
+          <option value="">All Statuses</option>
+          <option value="active">Active</option>
+          <option value="suspended">Suspended</option>
+        </select>
+        <button type="submit">Filter</button>
+        <button type="button" id="accounts-reset-btn" class="secondary">Reset</button>
+      </form>
+
+      <p id="accounts-error" class="error banner" hidden></p>
+
+      <table id="accounts-table">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Role</th>
+            <th>Verification</th>
+            <th>Standing</th>
+            <th>Created</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="pagination-bar">
+        <span id="accounts-count" class="muted"></span>
+        <div class="pagination-controls">
+          <button id="accounts-prev-btn" type="button" class="secondary" disabled>&larr; Prev</button>
+          <span id="accounts-page-info">Page 1</span>
+          <button id="accounts-next-btn" type="button" class="secondary" disabled>Next &rarr;</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Dialog: Review KYC Submission -->
     <dialog id="review-dialog">
       <h2>Review submission</h2>
       <p id="review-target" class="muted"></p>
@@ -51,8 +120,38 @@
         placeholder="Explain why this submission is rejected"></textarea>
       <p id="review-error" class="error" hidden></p>
       <menu>
-        <button id="review-cancel" type="button">Cancel</button>
+        <button id="review-cancel" type="button" class="secondary">Cancel</button>
         <button id="review-submit" type="button">Submit review</button>
+      </menu>
+    </dialog>
+
+    <!-- Dialog: Suspend Account -->
+    <dialog id="suspend-dialog">
+      <h2>Suspend Account</h2>
+      <p id="suspend-target" class="muted"></p>
+      <p class="warning-callout">Suspending will immediately revoke all active JWT tokens and block user login.</p>
+      <label for="suspend-reason">Reason for suspension (required) <span class="required">*</span></label>
+      <textarea id="suspend-reason" maxlength="1000" rows="3" required
+        placeholder="Explain why this account is being suspended"></textarea>
+      <p id="suspend-error" class="error" hidden></p>
+      <menu>
+        <button id="suspend-cancel" type="button" class="secondary">Cancel</button>
+        <button id="suspend-submit" type="button" class="danger">Suspend Account</button>
+      </menu>
+    </dialog>
+
+    <!-- Dialog: Reactivate Account -->
+    <dialog id="reactivate-dialog">
+      <h2>Reactivate Account</h2>
+      <p id="reactivate-target" class="muted"></p>
+      <p class="info-callout">Reactivating will restore account access and permit login immediately.</p>
+      <label for="reactivate-reason">Reason for reactivation (optional)</label>
+      <textarea id="reactivate-reason" maxlength="1000" rows="3"
+        placeholder="Optional notes or appeal details"></textarea>
+      <p id="reactivate-error" class="error" hidden></p>
+      <menu>
+        <button id="reactivate-cancel" type="button" class="secondary">Cancel</button>
+        <button id="reactivate-submit" type="button">Reactivate Account</button>
       </menu>
     </dialog>
   </section>

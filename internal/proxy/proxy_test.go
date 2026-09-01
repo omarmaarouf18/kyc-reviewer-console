@@ -186,3 +186,119 @@ func TestDocumentView_MissingTokenRejected(t *testing.T) {
 		t.Error("upstream must not be called when view token is missing")
 	}
 }
+
+func TestAccounts_ForwardsQueryAndTokens(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`{"accounts":[{"id":"u1","username":"alice"}],"total":1,"page":1,"limit":20}`)}
+	p, _ := newTestProxy(t, stub)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/accounts?search=alice&role=owner&page=1&limit=10", nil)
+	req.Header.Set("X-Reviewer-Token", "reviewer-tok-123")
+	rec := httptest.NewRecorder()
+	p.Accounts(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if stub.gotInternal != "secret-internal-token" || stub.gotReviewer != "reviewer-tok-123" {
+		t.Errorf("tokens not forwarded correctly: internal=%q reviewer=%q", stub.gotInternal, stub.gotReviewer)
+	}
+	if stub.gotPath != "/auth/accounts" {
+		t.Errorf("unexpected upstream path: %q", stub.gotPath)
+	}
+}
+
+func TestAccounts_MissingTokenRejectedLocally(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK}
+	p, _ := newTestProxy(t, stub)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/accounts", nil)
+	rec := httptest.NewRecorder()
+	p.Accounts(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without reviewer token, got %d", rec.Code)
+	}
+	if stub.gotPath != "" {
+		t.Error("upstream must not be called when reviewer token is missing")
+	}
+}
+
+func TestSuspend_ValidationsBeforeUpstream(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		wantSub string
+	}{
+		{"missing user_id", `{"reason":"Fraud"}`, "user_id is required"},
+		{"missing reason", `{"user_id":"u1","reason":""}`, "reason is required for suspension"},
+		{"whitespace reason", `{"user_id":"u1","reason":"   "}`, "reason is required for suspension"},
+		{"oversized reason", `{"user_id":"u1","reason":"` + strings.Repeat("x", 1001) + `"}`, "1000 characters"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &upstreamStub{t: t, statusCode: http.StatusOK}
+			p, _ := newTestProxy(t, stub)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/accounts/suspend", strings.NewReader(tc.body))
+			req.Header.Set("X-Reviewer-Token", "tok")
+			rec := httptest.NewRecorder()
+			p.Suspend(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tc.wantSub) {
+				t.Errorf("expected error containing %q, got %s", tc.wantSub, rec.Body.String())
+			}
+			if stub.gotPath != "" {
+				t.Error("invalid suspend payload must not reach auth-service")
+			}
+		})
+	}
+}
+
+func TestSuspend_ValidPayloadForwarded(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`{"status":"suspended","user_id":"u1","account_status":"suspended"}`)}
+	p, _ := newTestProxy(t, stub)
+
+	body := `{"user_id":"u1","reason":"Policy violation"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/accounts/suspend", strings.NewReader(body))
+	req.Header.Set("X-Reviewer-Token", "tok")
+	rec := httptest.NewRecorder()
+	p.Suspend(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if stub.gotBody["user_id"] != "u1" || stub.gotBody["reason"] != "Policy violation" {
+		t.Errorf("payload mismatch: %+v", stub.gotBody)
+	}
+	if stub.gotInternal != "secret-internal-token" || stub.gotReviewer != "tok" {
+		t.Errorf("token mismatch: internal=%q reviewer=%q", stub.gotInternal, stub.gotReviewer)
+	}
+}
+
+func TestReactivate_ValidPayloadForwarded(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`{"status":"reactivated","user_id":"u1","account_status":"active"}`)}
+	p, _ := newTestProxy(t, stub)
+
+	body := `{"user_id":"u1","reason":"Appeal accepted"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/accounts/reactivate", strings.NewReader(body))
+	req.Header.Set("X-Reviewer-Token", "tok")
+	rec := httptest.NewRecorder()
+	p.Reactivate(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if stub.gotBody["user_id"] != "u1" || stub.gotBody["reason"] != "Appeal accepted" {
+		t.Errorf("payload mismatch: %+v", stub.gotBody)
+	}
+	if stub.gotInternal != "secret-internal-token" || stub.gotReviewer != "tok" {
+		t.Errorf("token mismatch: internal=%q reviewer=%q", stub.gotInternal, stub.gotReviewer)
+	}
+}

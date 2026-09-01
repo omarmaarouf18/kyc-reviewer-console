@@ -22,16 +22,18 @@ ADR-0013, scoped to KYC/KYB/KYE review by saas-core ADR-0021 (Accepted,
 
 - `internal/config` — env config with empty-secret fail-fast guard (Q23
   discipline), tested.
-- `internal/proxy` — queue/review/document-view proxies with the two-token
-  contract, local payload validation mirroring auth-service's mandatory
-  rejection reason + 1000-char bound, byte-streaming document relay;
-  regression-tested via httptest stubs asserting token forwarding and that
-  invalid payloads never reach upstream.
+- `internal/proxy` — queue/review/document-view/accounts/suspend/reactivate proxies
+  with the two-token contract, local payload validation mirroring auth-service's
+  mandatory rejection and suspension reasons + 1000-char bounds, byte-streaming
+  document relay; regression-tested via httptest stubs asserting token forwarding
+  and that invalid payloads never reach upstream (ADR-0021 / ADR-0022).
 - `cmd/server` — HTTP server (timeouts, CR/LF-sanitized request logging,
-  optional mTLS client for auth-service), static UI serving.
-- `web/` — login (sessionStorage tab-scoped reviewer token), pending queue,
-  review dialog with reason required when rejecting, document viewer opening
-  proxied blobs.
+  optional mTLS client for auth-service), static UI serving with `/api/queue`,
+  `/api/review`, `/api/documents/view`, `/api/accounts`, `/api/accounts/suspend`,
+  and `/api/accounts/reactivate`.
+- `web/` — login (sessionStorage tab-scoped reviewer token), tabbed interface
+  switching between Pending Queue and Accounts Directory, search and filter
+  controls, pagination, status badges, review modal, and suspend/reactivate modals.
 - CI: `.github/workflows/ci.yml` (gofmt/build/vet/test/gosec);
   `.github/workflows/contract-sync.yml` responding to saas-core's
   `reviewer-api-contract` repository_dispatch.

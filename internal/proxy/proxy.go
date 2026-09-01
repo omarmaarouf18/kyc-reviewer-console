@@ -178,3 +178,92 @@ func (p *ReviewerProxy) DocumentView(w http.ResponseWriter, r *http.Request) {
 	// structure (SSF/SSRF defense for the G704-tainted transport above).
 	p.forward(w, r, "/auth/documents/view?token="+url.QueryEscape(viewToken))
 }
+
+// Accounts proxies GET /auth/accounts forwarding query parameters (search, role, status, page, limit).
+func (p *ReviewerProxy) Accounts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	upstreamPath := "/auth/accounts"
+	if r.URL.RawQuery != "" {
+		upstreamPath += "?" + r.URL.RawQuery
+	}
+	p.forward(w, r, upstreamPath)
+}
+
+type suspendRequest struct {
+	UserID string `json:"user_id"`
+	Reason string `json:"reason"`
+}
+
+// Suspend proxies POST /auth/accounts/suspend with local payload shape validation (ADR-0022).
+func (p *ReviewerProxy) Suspend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"use POST"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req suspendRequest
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	if err := dec.Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+	if req.UserID == "" {
+		http.Error(w, `{"error":"user_id is required"}`, http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Reason) == "" {
+		http.Error(w, `{"error":"reason is required for suspension"}`, http.StatusBadRequest)
+		return
+	}
+	if len(req.Reason) > 1000 {
+		http.Error(w, `{"error":"reason exceeds maximum length of 1000 characters"}`, http.StatusBadRequest)
+		return
+	}
+
+	payload, err := json.Marshal(req)
+	if err != nil {
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(payload))
+	p.forward(w, r, "/auth/accounts/suspend")
+}
+
+type reactivateRequest struct {
+	UserID string `json:"user_id"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// Reactivate proxies POST /auth/accounts/reactivate with local payload shape validation (ADR-0022).
+func (p *ReviewerProxy) Reactivate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"use POST"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req reactivateRequest
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	if err := dec.Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+	if req.UserID == "" {
+		http.Error(w, `{"error":"user_id is required"}`, http.StatusBadRequest)
+		return
+	}
+	if len(req.Reason) > 1000 {
+		http.Error(w, `{"error":"reason exceeds maximum length of 1000 characters"}`, http.StatusBadRequest)
+		return
+	}
+
+	payload, err := json.Marshal(req)
+	if err != nil {
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(payload))
+	p.forward(w, r, "/auth/accounts/reactivate")
+}

@@ -60,6 +60,9 @@ func main() {
 	mux.HandleFunc("/api/queue", p.Queue)
 	mux.HandleFunc("/api/review", p.Review)
 	mux.HandleFunc("/api/documents/view", p.DocumentView)
+	mux.HandleFunc("/api/accounts", p.Accounts)
+	mux.HandleFunc("/api/accounts/suspend", p.Suspend)
+	mux.HandleFunc("/api/accounts/reactivate", p.Reactivate)
 	mux.Handle("/", http.FileServer(http.Dir("web")))
 
 	addr := ":" + cfg.Port
