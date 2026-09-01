@@ -18,6 +18,14 @@ const accountsState = {
   total: 0,
 };
 
+let targetDispute = null;
+
+const reconciliationState = {
+  page: 1,
+  limit: 15,
+  total: 0,
+};
+
 function authHeaders() {
   return { 'X-Reviewer-Token': sessionStorage.getItem(tokenKey) || '' };
 }
@@ -56,21 +64,30 @@ function switchTab(tab) {
   activeTab = tab;
   const queueBtn = document.getElementById('tab-queue-btn');
   const accountsBtn = document.getElementById('tab-accounts-btn');
+  const reconBtn = document.getElementById('tab-reconciliation-btn');
   const queueSection = document.getElementById('queue-section');
   const accountsSection = document.getElementById('accounts-section');
+  const reconSection = document.getElementById('reconciliation-section');
+
+  queueBtn.classList.remove('active');
+  accountsBtn.classList.remove('active');
+  reconBtn.classList.remove('active');
+  hide(queueSection);
+  hide(accountsSection);
+  hide(reconSection);
 
   if (tab === 'queue') {
     queueBtn.classList.add('active');
-    accountsBtn.classList.remove('active');
     show(queueSection);
-    hide(accountsSection);
     loadQueue();
-  } else {
+  } else if (tab === 'accounts') {
     accountsBtn.classList.add('active');
-    queueBtn.classList.remove('active');
     show(accountsSection);
-    hide(queueSection);
     loadAccounts();
+  } else if (tab === 'reconciliation') {
+    reconBtn.classList.add('active');
+    show(reconSection);
+    loadReconciliation();
   }
 }
 
@@ -458,6 +475,185 @@ async function submitReactivate() {
 }
 
 // ---------------------------------------------------------------------------
+// Disputes & Escrow Reconciliation (ADR-0023)
+// ---------------------------------------------------------------------------
+
+async function loadReconciliation() {
+  hide(document.getElementById('reconciliation-error'));
+
+  const params = new URLSearchParams({
+    page: String(reconciliationState.page),
+    limit: String(reconciliationState.limit),
+  });
+
+  let data;
+  try {
+    const res = await api(`/api/reconciliation/queue?${params.toString()}`);
+    if (!res.ok) throw new Error(`reconciliation request failed (${res.status})`);
+    data = await res.json();
+  } catch (e) {
+    if (e.message === 'unauthorized') return;
+    const err = document.getElementById('reconciliation-error');
+    err.textContent = `Failed to load reconciliation queue: ${e.message}`;
+    show(err);
+    return;
+  }
+
+  const disputes = data.disputes || [];
+  reconciliationState.total = data.total || 0;
+
+  const countBadge = document.getElementById('reconciliation-badge');
+  if (countBadge) countBadge.textContent = `${data.total || disputes.length}`;
+
+  const tbody = document.querySelector('#reconciliation-table tbody');
+  tbody.textContent = '';
+
+  if (disputes.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 7;
+    td.className = 'empty-state';
+    td.textContent = 'No jobs pending escrow reconciliation.';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    for (const d of disputes) {
+      const tr = document.createElement('tr');
+
+      // Job & Route
+      const jobTd = document.createElement('td');
+      jobTd.innerHTML = `<strong></strong><br><span class="muted small route-text"></span><br><code class="id-tag"></code>`;
+      jobTd.querySelector('strong').textContent = `Job #${d.id.slice(-8)}`;
+      jobTd.querySelector('.route-text').textContent = `${d.pickup_address || 'Pickup'} &rarr; ${d.dropoff_address || 'Dropoff'}`;
+      jobTd.querySelector('.id-tag').textContent = d.id;
+      tr.appendChild(jobTd);
+
+      // Category
+      const catTd = document.createElement('td');
+      catTd.textContent = capitalize(d.category || 'delivery');
+      tr.appendChild(catTd);
+
+      // Distance Discrepancy
+      const distTd = document.createElement('td');
+      const ratio = d.booked_distance > 0 ? (d.actual_distance / d.booked_distance) * 100 : 0;
+      distTd.innerHTML = `<span class="dist-stat"><strong>${d.actual_distance.toFixed(1)} km</strong> tracked</span><br>` +
+        `<span class="muted small">Booked: ${d.booked_distance.toFixed(1)} km (${ratio.toFixed(0)}%)</span><br>` +
+        `<span class="muted small">${d.waypoints_count || 0} waypoints</span>`;
+      if (ratio < 70) {
+        distTd.querySelector('.dist-stat').classList.add('warning-text');
+      }
+      tr.appendChild(distTd);
+
+      // Locked Escrow
+      const escrowTd = document.createElement('td');
+      escrowTd.innerHTML = `<strong>${d.locked_escrow_amount.toFixed(2)} EGP</strong>`;
+      tr.appendChild(escrowTd);
+
+      // Payment
+      const payTd = document.createElement('td');
+      payTd.innerHTML = `<span class="badge ${d.payment_method === 'cod' ? 'badge-cod' : 'badge-wallet'}">${d.payment_method ? d.payment_method.toUpperCase() : 'WALLET'}</span>`;
+      tr.appendChild(payTd);
+
+      // Flag Reason
+      const flagTd = document.createElement('td');
+      flagTd.className = 'small';
+      flagTd.textContent = d.reconciliation_reason || d.reconciliation_note || 'under_distance_mismatch';
+      tr.appendChild(flagTd);
+
+      // Action
+      const actionTd = document.createElement('td');
+      const resolveBtn = document.createElement('button');
+      resolveBtn.type = 'button';
+      resolveBtn.className = 'btn-sm';
+      resolveBtn.textContent = 'Resolve Dispute…';
+      resolveBtn.addEventListener('click', () => openResolveDisputeDialog(d));
+      actionTd.appendChild(resolveBtn);
+      tr.appendChild(actionTd);
+
+      tbody.appendChild(tr);
+    }
+  }
+
+  // Update Pagination Controls
+  const totalPages = Math.max(1, Math.ceil(reconciliationState.total / reconciliationState.limit));
+  document.getElementById('reconciliation-page-info').textContent = `Page ${reconciliationState.page} of ${totalPages}`;
+  document.getElementById('reconciliation-count').textContent = `Showing ${disputes.length} of ${reconciliationState.total} disputed jobs`;
+
+  const prevBtn = document.getElementById('reconciliation-prev-btn');
+  const nextBtn = document.getElementById('reconciliation-next-btn');
+  prevBtn.disabled = reconciliationState.page <= 1;
+  nextBtn.disabled = reconciliationState.page >= totalPages;
+}
+
+// ---------------------------------------------------------------------------
+// Resolve Dispute Dialog (ADR-0023)
+// ---------------------------------------------------------------------------
+
+function openResolveDisputeDialog(dispute) {
+  targetDispute = dispute;
+  document.getElementById('resolve-dispute-target').textContent =
+    `Dispute on Job ${dispute.id}`;
+
+  const detailsEl = document.getElementById('resolve-dispute-details');
+  const ratio = dispute.booked_distance > 0 ? ((dispute.actual_distance / dispute.booked_distance) * 100).toFixed(0) : '0';
+  detailsEl.innerHTML = `
+    <div class="detail-row"><span>Category:</span> <strong>${capitalize(dispute.category || 'delivery')}</strong></div>
+    <div class="detail-row"><span>Route:</span> <strong>${dispute.pickup_address} &rarr; ${dispute.dropoff_address}</strong></div>
+    <div class="detail-row"><span>Booked vs Tracked:</span> <strong>${dispute.booked_distance.toFixed(1)} km vs ${dispute.actual_distance.toFixed(1)} km (${ratio}%)</strong></div>
+    <div class="detail-row"><span>Locked Escrow:</span> <strong>${dispute.locked_escrow_amount.toFixed(2)} EGP</strong></div>
+    <div class="detail-row"><span>Tenant Owner:</span> <code>${dispute.owner_id}</code></div>
+    <div class="detail-row"><span>Assigned Courier:</span> <code>${dispute.employee_id || '(none)'}</code></div>
+    <div class="detail-row"><span>Customer:</span> <code>${dispute.customer_id}</code></div>
+    <div class="detail-row"><span>Flag Note:</span> <em>${dispute.reconciliation_reason || dispute.reconciliation_note || 'under_distance_mismatch'}</em></div>
+  `;
+
+  document.getElementById('resolve-dispute-reason').value = '';
+  hide(document.getElementById('resolve-dispute-error'));
+  const defaultRadio = document.querySelector('input[name="dispute-decision"][value="release_to_employee"]');
+  if (defaultRadio) defaultRadio.checked = true;
+
+  document.getElementById('resolve-dispute-dialog').showModal();
+}
+
+async function submitResolveDispute() {
+  if (!targetDispute) return;
+  const decision = document.querySelector('input[name="dispute-decision"]:checked').value;
+  const reason = document.getElementById('resolve-dispute-reason').value.trim();
+
+  if (!reason) {
+    const err = document.getElementById('resolve-dispute-error');
+    err.textContent = 'A reason is required to resolve this dispute.';
+    show(err);
+    return;
+  }
+
+  const res = await api('/api/reconciliation/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      job_id: targetDispute.id,
+      decision,
+      reason,
+    }),
+  });
+
+  if (!res.ok) {
+    let msg = `Dispute resolution failed (HTTP ${res.status})`;
+    try {
+      const body = await res.json();
+      if (body.error) msg = body.error;
+    } catch { /* keep generic */ }
+    const err = document.getElementById('resolve-dispute-error');
+    err.textContent = msg;
+    show(err);
+    return;
+  }
+
+  document.getElementById('resolve-dispute-dialog').close();
+  loadReconciliation();
+}
+
+// ---------------------------------------------------------------------------
 // Event Listeners Initialization
 // ---------------------------------------------------------------------------
 
@@ -486,9 +682,11 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 document.getElementById('logout-btn').addEventListener('click', () => logout());
 document.getElementById('tab-queue-btn').addEventListener('click', () => switchTab('queue'));
 document.getElementById('tab-accounts-btn').addEventListener('click', () => switchTab('accounts'));
+document.getElementById('tab-reconciliation-btn').addEventListener('click', () => switchTab('reconciliation'));
 
 document.getElementById('refresh-queue-btn').addEventListener('click', loadQueue);
 document.getElementById('refresh-accounts-btn').addEventListener('click', loadAccounts);
+document.getElementById('refresh-reconciliation-btn').addEventListener('click', loadReconciliation);
 
 document.getElementById('review-cancel').addEventListener('click', () => document.getElementById('review-dialog').close());
 document.getElementById('review-submit').addEventListener('click', submitReview);
@@ -501,6 +699,9 @@ document.getElementById('suspend-submit').addEventListener('click', submitSuspen
 
 document.getElementById('reactivate-cancel').addEventListener('click', () => document.getElementById('reactivate-dialog').close());
 document.getElementById('reactivate-submit').addEventListener('click', submitReactivate);
+
+document.getElementById('resolve-dispute-cancel').addEventListener('click', () => document.getElementById('resolve-dispute-dialog').close());
+document.getElementById('resolve-dispute-submit').addEventListener('click', submitResolveDispute);
 
 // Accounts Toolbar and Search
 document.getElementById('accounts-filter-form').addEventListener('submit', (e) => {
@@ -537,3 +738,20 @@ document.getElementById('accounts-next-btn').addEventListener('click', () => {
     loadAccounts();
   }
 });
+
+// Reconciliation Pagination
+document.getElementById('reconciliation-prev-btn').addEventListener('click', () => {
+  if (reconciliationState.page > 1) {
+    reconciliationState.page--;
+    loadReconciliation();
+  }
+});
+
+document.getElementById('reconciliation-next-btn').addEventListener('click', () => {
+  const totalPages = Math.ceil(reconciliationState.total / reconciliationState.limit);
+  if (reconciliationState.page < totalPages) {
+    reconciliationState.page++;
+    loadReconciliation();
+  }
+});
+

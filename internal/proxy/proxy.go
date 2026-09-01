@@ -23,6 +23,7 @@ const reviewerTokenHeader = "X-Reviewer-Token"
 type ReviewerProxy struct {
 	internalServiceToken string
 	authServiceURL       string
+	userServiceURL       string
 	client               *http.Client
 }
 
@@ -33,14 +34,28 @@ func New(internalServiceToken, authServiceURL string, client *http.Client) *Revi
 	return &ReviewerProxy{
 		internalServiceToken: internalServiceToken,
 		authServiceURL:       strings.TrimSuffix(authServiceURL, "/"),
+		userServiceURL:       "https://user-service:3003",
 		client:               client,
 	}
 }
 
-// forward relays method+path+body to auth-service with both tokens attached.
-// It returns the upstream status code and body verbatim; the console never
-// interprets or rewrites auth-service responses.
-func (p *ReviewerProxy) forward(w http.ResponseWriter, r *http.Request, path string) {
+func NewWithUserService(internalServiceToken, authServiceURL, userServiceURL string, client *http.Client) *ReviewerProxy {
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	if userServiceURL == "" {
+		userServiceURL = "https://user-service:3003"
+	}
+	return &ReviewerProxy{
+		internalServiceToken: internalServiceToken,
+		authServiceURL:       strings.TrimSuffix(authServiceURL, "/"),
+		userServiceURL:       strings.TrimSuffix(userServiceURL, "/"),
+		client:               client,
+	}
+}
+
+// forward relays method+path+body to a backend service with both tokens attached.
+func (p *ReviewerProxy) forwardToService(w http.ResponseWriter, r *http.Request, baseURL, path string) {
 	reviewerToken := r.Header.Get(reviewerTokenHeader)
 	if reviewerToken == "" {
 		http.Error(w, `{"error":"reviewer token required"}`, http.StatusUnauthorized)
@@ -57,8 +72,8 @@ func (p *ReviewerProxy) forward(w http.ResponseWriter, r *http.Request, path str
 		bodyReader = bytes.NewReader(b)
 	}
 
-	// #nosec G704 //nolint:gosec -- scheme and host come exclusively from internal config (AUTH_SERVICE_URL); the only request-derived component is the query string, which is URL-escaped by callers
-	req, err := http.NewRequestWithContext(r.Context(), r.Method, p.authServiceURL+path, bodyReader)
+	// #nosec G704 //nolint:gosec -- scheme and host come exclusively from internal config; query string is URL-escaped by callers
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, baseURL+path, bodyReader)
 	if err != nil {
 		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized
 		log.Printf("[CONSOLE] failed to build upstream request for %s: %v", sanitizeLog(path), sanitizeLog(err.Error()))
@@ -79,7 +94,6 @@ func (p *ReviewerProxy) forward(w http.ResponseWriter, r *http.Request, path str
 	}
 	defer resp.Body.Close()
 
-	// Pass through content type so document streaming works for images/PDFs.
 	if ct := resp.Header.Get("Content-Type"); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
@@ -99,6 +113,11 @@ func sanitizeLog(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// forward relays method+path+body to auth-service with both tokens attached.
+func (p *ReviewerProxy) forward(w http.ResponseWriter, r *http.Request, path string) {
+	p.forwardToService(w, r, p.authServiceURL, path)
 }
 
 // Queue proxies GET /auth/kyb-kye/pending.
@@ -267,3 +286,62 @@ func (p *ReviewerProxy) Reactivate(w http.ResponseWriter, r *http.Request) {
 	r.Body = io.NopCloser(bytes.NewReader(payload))
 	p.forward(w, r, "/auth/accounts/reactivate")
 }
+
+// ReconciliationQueue proxies GET /admin/reconciliation/queue to user-service (ADR-0023).
+func (p *ReviewerProxy) ReconciliationQueue(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	upstreamPath := "/admin/reconciliation/queue"
+	if r.URL.RawQuery != "" {
+		upstreamPath += "?" + r.URL.RawQuery
+	}
+	p.forwardToService(w, r, p.userServiceURL, upstreamPath)
+}
+
+type reconciliationResolveRequest struct {
+	JobID    string `json:"job_id"`
+	Decision string `json:"decision"`
+	Reason   string `json:"reason"`
+}
+
+// ResolveReconciliation proxies POST /admin/reconciliation/resolve to user-service with local validation (ADR-0023).
+func (p *ReviewerProxy) ResolveReconciliation(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"use POST"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req reconciliationResolveRequest
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	if err := dec.Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+	if req.JobID == "" {
+		http.Error(w, `{"error":"job_id is required"}`, http.StatusBadRequest)
+		return
+	}
+	if req.Decision != "release_to_employee" && req.Decision != "refund_to_customer" {
+		http.Error(w, `{"error":"decision must be release_to_employee or refund_to_customer"}`, http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Reason) == "" {
+		http.Error(w, `{"error":"reason is required for dispute resolution"}`, http.StatusBadRequest)
+		return
+	}
+	if len(req.Reason) > 1000 {
+		http.Error(w, `{"error":"reason exceeds maximum length of 1000 characters"}`, http.StatusBadRequest)
+		return
+	}
+
+	payload, err := json.Marshal(req)
+	if err != nil {
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(payload))
+	p.forwardToService(w, r, p.userServiceURL, "/admin/reconciliation/resolve")
+}
+

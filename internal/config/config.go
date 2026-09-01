@@ -16,6 +16,7 @@ type Config struct {
 	Port                 string
 	InternalServiceToken string
 	AuthServiceURL       string
+	UserServiceURL       string
 	TLSCertPath          string
 	TLSKeyPath           string
 	TLSCAPath            string
@@ -39,6 +40,11 @@ func Load() (*Config, error) {
 		authServiceURL = "https://auth-service:3002"
 	}
 
+	userServiceURL := os.Getenv("USER_SERVICE_URL")
+	if userServiceURL == "" {
+		userServiceURL = "https://user-service:3003"
+	}
+
 	appEnv := os.Getenv("APP_ENV")
 	if appEnv == "" {
 		appEnv = "production"
@@ -48,6 +54,7 @@ func Load() (*Config, error) {
 		Port:                 port,
 		InternalServiceToken: internalServiceToken,
 		AuthServiceURL:       authServiceURL,
+		UserServiceURL:       userServiceURL,
 		TLSCertPath:          os.Getenv("TLS_CERT_PATH"),
 		TLSKeyPath:           os.Getenv("TLS_KEY_PATH"),
 		TLSCAPath:            os.Getenv("TLS_CA_PATH"),

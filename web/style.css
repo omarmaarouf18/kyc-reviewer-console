@@ -211,6 +211,50 @@ button.link:hover { background: none; }
 .badge-pending { background: var(--warning-bg); color: var(--warning); }
 .badge-approved { background: var(--success-bg); color: var(--success); }
 .badge-rejected { background: var(--error-bg); color: var(--error); }
+.badge-wallet { background: #e0e7ff; color: #3730a3; }
+.badge-cod { background: #fef3c7; color: #92400e; }
+
+.warning-text {
+  color: var(--error);
+  font-weight: 700;
+}
+
+.dispute-details-card {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin: 0.5rem 0 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.decision-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background: #f1f5f9;
+  border-radius: 6px;
+}
+
+.decision-group label {
+  margin: 0;
+  font-weight: normal;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
 
 .reason-note {
   font-size: 0.75rem;

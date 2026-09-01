@@ -39,6 +39,9 @@
       <button id="tab-accounts-btn" class="tab-btn" type="button">
         Accounts Directory
       </button>
+      <button id="tab-reconciliation-btn" class="tab-btn" type="button">
+        Disputes & Reconciliation <span id="reconciliation-badge" class="pill">0</span>
+      </button>
     </nav>
 
     <!-- TAB 1: Pending Queue -->
@@ -108,6 +111,40 @@
       </div>
     </section>
 
+    <!-- TAB 3: Disputes & Reconciliation (ADR-0023) -->
+    <section id="reconciliation-section" hidden>
+      <header>
+        <h2>Disputes & Escrow Reconciliation</h2>
+        <button id="refresh-reconciliation-btn" type="button">Refresh Disputes</button>
+      </header>
+
+      <p id="reconciliation-error" class="error banner" hidden></p>
+
+      <table id="reconciliation-table">
+        <thead>
+          <tr>
+            <th>Job & Route</th>
+            <th>Category</th>
+            <th>Distance Discrepancy</th>
+            <th>Locked Escrow</th>
+            <th>Payment</th>
+            <th>Flag Reason</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="pagination-bar">
+        <span id="reconciliation-count" class="muted"></span>
+        <div class="pagination-controls">
+          <button id="reconciliation-prev-btn" type="button" class="secondary" disabled>&larr; Prev</button>
+          <span id="reconciliation-page-info">Page 1</span>
+          <button id="reconciliation-next-btn" type="button" class="secondary" disabled>Next &rarr;</button>
+        </div>
+      </div>
+    </section>
+
     <!-- Dialog: Review KYC Submission -->
     <dialog id="review-dialog">
       <h2>Review submission</h2>
@@ -152,6 +189,25 @@
       <menu>
         <button id="reactivate-cancel" type="button" class="secondary">Cancel</button>
         <button id="reactivate-submit" type="button">Reactivate Account</button>
+      </menu>
+    </dialog>
+
+    <!-- Dialog: Resolve Reconciliation Dispute (ADR-0023) -->
+    <dialog id="resolve-dispute-dialog">
+      <h2>Resolve Dispute / Reconciliation</h2>
+      <p id="resolve-dispute-target" class="muted"></p>
+      <div id="resolve-dispute-details" class="dispute-details-card"></div>
+      <div class="decision-group">
+        <label><input type="radio" name="dispute-decision" value="release_to_employee" checked /> <strong>Release Funds to Courier / Tenant</strong> (Mark Completed)</label>
+        <label><input type="radio" name="dispute-decision" value="refund_to_customer" /> <strong>Refund Escrow to Customer</strong> (Mark Cancelled)</label>
+      </div>
+      <label for="resolve-dispute-reason">Reason for resolution decision (required) <span class="required">*</span></label>
+      <textarea id="resolve-dispute-reason" maxlength="1000" rows="3" required
+        placeholder="Explain why this dispute is being resolved with this decision"></textarea>
+      <p id="resolve-dispute-error" class="error" hidden></p>
+      <menu>
+        <button id="resolve-dispute-cancel" type="button" class="secondary">Cancel</button>
+        <button id="resolve-dispute-submit" type="button">Confirm Resolution</button>
       </menu>
     </dialog>
   </section>

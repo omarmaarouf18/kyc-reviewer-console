@@ -302,3 +302,92 @@ func TestReactivate_ValidPayloadForwarded(t *testing.T) {
 		t.Errorf("token mismatch: internal=%q reviewer=%q", stub.gotInternal, stub.gotReviewer)
 	}
 }
+
+func TestReconciliationQueue_ForwardsToUserServiceWithTokens(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`{"disputes":[{"id":"job-123","booked_distance":10.0,"actual_distance":5.0}],"total":1,"page":1,"limit":20}`)}
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	p := NewWithUserService("secret-internal-token", "https://auth-service", upstream.URL, upstream.Client())
+	t.Cleanup(upstream.Close)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/reconciliation/queue?page=1&limit=15", nil)
+	req.Header.Set("X-Reviewer-Token", "reviewer-tok-abc")
+	rec := httptest.NewRecorder()
+	p.ReconciliationQueue(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if stub.gotInternal != "secret-internal-token" || stub.gotReviewer != "reviewer-tok-abc" {
+		t.Errorf("tokens not forwarded correctly: internal=%q reviewer=%q", stub.gotInternal, stub.gotReviewer)
+	}
+	if stub.gotPath != "/admin/reconciliation/queue" {
+		t.Errorf("unexpected upstream path: %q", stub.gotPath)
+	}
+}
+
+func TestResolveReconciliation_ValidationsBeforeUpstream(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		wantSub string
+	}{
+		{"missing job_id", `{"decision":"release_to_employee","reason":"valid"}`, "job_id is required"},
+		{"invalid decision", `{"job_id":"j1","decision":"invalid","reason":"valid"}`, "decision must be release_to_employee or refund_to_customer"},
+		{"missing reason", `{"job_id":"j1","decision":"refund_to_customer","reason":""}`, "reason is required for dispute resolution"},
+		{"whitespace reason", `{"job_id":"j1","decision":"refund_to_customer","reason":"   "}`, "reason is required for dispute resolution"},
+		{"oversized reason", `{"job_id":"j1","decision":"refund_to_customer","reason":"` + strings.Repeat("x", 1001) + `"}`, "1000 characters"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &upstreamStub{t: t, statusCode: http.StatusOK}
+			upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+			p := NewWithUserService("secret-internal-token", "https://auth-service", upstream.URL, upstream.Client())
+			t.Cleanup(upstream.Close)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/reconciliation/resolve", strings.NewReader(tc.body))
+			req.Header.Set("X-Reviewer-Token", "tok")
+			rec := httptest.NewRecorder()
+			p.ResolveReconciliation(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tc.wantSub) {
+				t.Errorf("expected error containing %q, got %s", tc.wantSub, rec.Body.String())
+			}
+			if stub.gotPath != "" {
+				t.Error("invalid resolve payload must never reach user-service")
+			}
+		})
+	}
+}
+
+func TestResolveReconciliation_ValidPayloadForwarded(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`{"message":"dispute resolved successfully","job_id":"j1","status":"completed","decision":"release_to_employee"}`)}
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	p := NewWithUserService("secret-internal-token", "https://auth-service", upstream.URL, upstream.Client())
+	t.Cleanup(upstream.Close)
+
+	body := `{"job_id":"j1","decision":"release_to_employee","reason":"GPS anomaly investigated; delivery verified"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/reconciliation/resolve", strings.NewReader(body))
+	req.Header.Set("X-Reviewer-Token", "tok-xyz")
+	rec := httptest.NewRecorder()
+	p.ResolveReconciliation(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if stub.gotBody["job_id"] != "j1" || stub.gotBody["decision"] != "release_to_employee" {
+		t.Errorf("payload mismatch at upstream: %+v", stub.gotBody)
+	}
+	if stub.gotInternal != "secret-internal-token" || stub.gotReviewer != "tok-xyz" {
+		t.Errorf("tokens mismatch: internal=%q reviewer=%q", stub.gotInternal, stub.gotReviewer)
+	}
+	if stub.gotPath != "/admin/reconciliation/resolve" {
+		t.Errorf("unexpected path: %q", stub.gotPath)
+	}
+}
+
