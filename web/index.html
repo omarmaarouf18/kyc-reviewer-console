@@ -42,6 +42,12 @@
       <button id="tab-reconciliation-btn" class="tab-btn" type="button">
         Disputes & Reconciliation <span id="reconciliation-badge" class="pill">0</span>
       </button>
+      <button id="tab-subscriptions-btn" class="tab-btn" type="button">
+        Subscriptions <span id="subscriptions-badge" class="pill">0</span>
+      </button>
+      <button id="tab-tickets-btn" class="tab-btn" type="button">
+        Support Tickets <span id="tickets-badge" class="pill">0</span>
+      </button>
     </nav>
 
     <!-- TAB 1: Pending Queue -->
@@ -145,6 +151,98 @@
       </div>
     </section>
 
+    <!-- TAB 4: Subscriptions (ADR-0023 Module A) -->
+    <section id="subscriptions-section" hidden>
+      <header>
+        <h2>Tenant Subscriptions</h2>
+        <button id="refresh-subscriptions-btn" type="button">Refresh</button>
+      </header>
+
+      <form id="subscriptions-filter-form" class="toolbar">
+        <input type="text" id="subscriptions-search-input" placeholder="Search tenant ID or reason..." autocomplete="off" />
+        <select id="subscriptions-status-filter">
+          <option value="">All Tiers</option>
+          <option value="pending_payment">Pending Payment</option>
+          <option value="paid">Paid</option>
+          <option value="free">Free</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <button type="submit">Filter</button>
+        <button type="button" id="subscriptions-reset-btn" class="secondary">Reset</button>
+      </form>
+
+      <p id="subscriptions-error" class="error banner" hidden></p>
+
+      <table id="subscriptions-table">
+        <thead>
+          <tr>
+            <th>Tenant ID</th>
+            <th>Tier Status</th>
+            <th>Started At</th>
+            <th>Expires At</th>
+            <th>Audit Notes</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="pagination-bar">
+        <span id="subscriptions-count" class="muted"></span>
+        <div class="pagination-controls">
+          <button id="subscriptions-prev-btn" type="button" class="secondary" disabled>&larr; Prev</button>
+          <span id="subscriptions-page-info">Page 1</span>
+          <button id="subscriptions-next-btn" type="button" class="secondary" disabled>Next &rarr;</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: Support Tickets (ADR-0023 Module B) -->
+    <section id="tickets-section" hidden>
+      <header>
+        <h2>Support & Complaint Tickets</h2>
+        <button id="refresh-tickets-btn" type="button">Refresh Tickets</button>
+      </header>
+
+      <form id="tickets-filter-form" class="toolbar">
+        <input type="text" id="tickets-search-input" placeholder="Search ticket ID, customer ID, or context..." autocomplete="off" />
+        <select id="tickets-status-filter">
+          <option value="">All Statuses</option>
+          <option value="pending">Pending</option>
+          <option value="assigned">Assigned</option>
+          <option value="resolved">Resolved</option>
+        </select>
+        <button type="submit">Filter</button>
+        <button type="button" id="tickets-reset-btn" class="secondary">Reset</button>
+      </form>
+
+      <p id="tickets-error" class="error banner" hidden></p>
+
+      <table id="tickets-table">
+        <thead>
+          <tr>
+            <th>Ticket ID</th>
+            <th>Customer ID</th>
+            <th>Context / Subject</th>
+            <th>Status</th>
+            <th>Assigned Agent</th>
+            <th>Created At</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="pagination-bar">
+        <span id="tickets-count" class="muted"></span>
+        <div class="pagination-controls">
+          <button id="tickets-prev-btn" type="button" class="secondary" disabled>&larr; Prev</button>
+          <span id="tickets-page-info">Page 1</span>
+          <button id="tickets-next-btn" type="button" class="secondary" disabled>Next &rarr;</button>
+        </div>
+      </div>
+    </section>
+
     <!-- Dialog: Review KYC Submission -->
     <dialog id="review-dialog">
       <h2>Review submission</h2>
@@ -208,6 +306,55 @@
       <menu>
         <button id="resolve-dispute-cancel" type="button" class="secondary">Cancel</button>
         <button id="resolve-dispute-submit" type="button">Confirm Resolution</button>
+      </menu>
+    </dialog>
+
+    <!-- Dialog: Activate Subscription (ADR-0023 Module A) -->
+    <dialog id="activate-sub-dialog">
+      <h2>Activate Tenant Paid Tier</h2>
+      <p id="activate-sub-target" class="muted"></p>
+      <p class="info-callout">Confirm manual offline payment or bank invoice verification before activation.</p>
+      <label for="activate-sub-duration">Plan Duration</label>
+      <select id="activate-sub-duration">
+        <option value="30">30 Days (1 Month)</option>
+        <option value="90">90 Days (3 Months)</option>
+        <option value="180">180 Days (6 Months)</option>
+        <option value="365">365 Days (1 Year)</option>
+      </select>
+      <p id="activate-sub-error" class="error" hidden></p>
+      <menu>
+        <button id="activate-sub-cancel" type="button" class="secondary">Cancel</button>
+        <button id="activate-sub-submit" type="button">Activate Plan</button>
+      </menu>
+    </dialog>
+
+    <!-- Dialog: Revoke Subscription (ADR-0023 Module A) -->
+    <dialog id="revoke-sub-dialog">
+      <h2>Revoke Subscription Plan</h2>
+      <p id="revoke-sub-target" class="muted"></p>
+      <p class="warning-callout">Revoking will immediately cancel tenant access to paid SaaS features.</p>
+      <label for="revoke-sub-reason">Reason for revocation (required) <span class="required">*</span></label>
+      <textarea id="revoke-sub-reason" maxlength="1000" rows="3" required
+        placeholder="Explain why this subscription is being revoked / cancelled"></textarea>
+      <p id="revoke-sub-error" class="error" hidden></p>
+      <menu>
+        <button id="revoke-sub-cancel" type="button" class="secondary">Cancel</button>
+        <button id="revoke-sub-submit" type="button" class="danger">Revoke Plan</button>
+      </menu>
+    </dialog>
+
+    <!-- Dialog: Resolve Support Ticket (ADR-0023 Module B) -->
+    <dialog id="resolve-ticket-dialog">
+      <h2>Resolve Support Ticket</h2>
+      <p id="resolve-ticket-target" class="muted"></p>
+      <div id="resolve-ticket-details" class="dispute-details-card"></div>
+      <label for="resolve-ticket-note">Resolution Note / Action Taken (required) <span class="required">*</span></label>
+      <textarea id="resolve-ticket-note" maxlength="1000" rows="3" required
+        placeholder="Document the resolution, customer follow-up, or root cause"></textarea>
+      <p id="resolve-ticket-error" class="error" hidden></p>
+      <menu>
+        <button id="resolve-ticket-cancel" type="button" class="secondary">Cancel</button>
+        <button id="resolve-ticket-submit" type="button">Confirm Resolve</button>
       </menu>
     </dialog>
   </section>

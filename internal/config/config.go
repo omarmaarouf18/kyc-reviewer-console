@@ -17,6 +17,7 @@ type Config struct {
 	InternalServiceToken string
 	AuthServiceURL       string
 	UserServiceURL       string
+	ChatServiceURL       string
 	TLSCertPath          string
 	TLSKeyPath           string
 	TLSCAPath            string
@@ -45,6 +46,11 @@ func Load() (*Config, error) {
 		userServiceURL = "https://user-service:3003"
 	}
 
+	chatServiceURL := os.Getenv("CHAT_SERVICE_URL")
+	if chatServiceURL == "" {
+		chatServiceURL = "https://chat-service:3005"
+	}
+
 	appEnv := os.Getenv("APP_ENV")
 	if appEnv == "" {
 		appEnv = "production"
@@ -55,6 +61,7 @@ func Load() (*Config, error) {
 		InternalServiceToken: internalServiceToken,
 		AuthServiceURL:       authServiceURL,
 		UserServiceURL:       userServiceURL,
+		ChatServiceURL:       chatServiceURL,
 		TLSCertPath:          os.Getenv("TLS_CERT_PATH"),
 		TLSKeyPath:           os.Getenv("TLS_KEY_PATH"),
 		TLSCAPath:            os.Getenv("TLS_CA_PATH"),

@@ -213,6 +213,12 @@ button.link:hover { background: none; }
 .badge-rejected { background: var(--error-bg); color: var(--error); }
 .badge-wallet { background: #e0e7ff; color: #3730a3; }
 .badge-cod { background: #fef3c7; color: #92400e; }
+.badge-paid { background: #dcfce7; color: #15803d; }
+.badge-free { background: #f1f5f9; color: #475569; }
+.badge-cancelled { background: #fee2e2; color: #b91c1c; }
+.badge-assigned { background: #e0f2fe; color: #0369a1; }
+.badge-resolved { background: #f0fdf4; color: #15803d; }
+
 
 .warning-text {
   color: var(--error);

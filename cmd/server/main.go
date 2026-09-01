@@ -50,7 +50,7 @@ func main() {
 		}
 	}
 
-	p := proxy.NewWithUserService(cfg.InternalServiceToken, cfg.AuthServiceURL, cfg.UserServiceURL, client)
+	p := proxy.NewWithServices(cfg.InternalServiceToken, cfg.AuthServiceURL, cfg.UserServiceURL, cfg.ChatServiceURL, client)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -65,6 +65,11 @@ func main() {
 	mux.HandleFunc("/api/accounts/reactivate", p.Reactivate)
 	mux.HandleFunc("/api/reconciliation/queue", p.ReconciliationQueue)
 	mux.HandleFunc("/api/reconciliation/resolve", p.ResolveReconciliation)
+	mux.HandleFunc("/api/subscriptions", p.Subscriptions)
+	mux.HandleFunc("/api/subscriptions/activate", p.ActivateSubscription)
+	mux.HandleFunc("/api/subscriptions/revoke", p.RevokeSubscription)
+	mux.HandleFunc("/api/tickets", p.Tickets)
+	mux.HandleFunc("/api/tickets/resolve", p.ResolveTicket)
 	mux.Handle("/", http.FileServer(http.Dir("web")))
 
 	addr := ":" + cfg.Port

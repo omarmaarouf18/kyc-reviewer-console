@@ -26,6 +26,26 @@ const reconciliationState = {
   total: 0,
 };
 
+let targetSub = null;
+
+const subscriptionsState = {
+  page: 1,
+  limit: 15,
+  search: '',
+  status: '',
+  total: 0,
+};
+
+let targetTicket = null;
+
+const ticketsState = {
+  page: 1,
+  limit: 15,
+  search: '',
+  status: '',
+  total: 0,
+};
+
 function authHeaders() {
   return { 'X-Reviewer-Token': sessionStorage.getItem(tokenKey) || '' };
 }
@@ -65,16 +85,26 @@ function switchTab(tab) {
   const queueBtn = document.getElementById('tab-queue-btn');
   const accountsBtn = document.getElementById('tab-accounts-btn');
   const reconBtn = document.getElementById('tab-reconciliation-btn');
+  const subsBtn = document.getElementById('tab-subscriptions-btn');
+  const ticketsBtn = document.getElementById('tab-tickets-btn');
+
   const queueSection = document.getElementById('queue-section');
   const accountsSection = document.getElementById('accounts-section');
   const reconSection = document.getElementById('reconciliation-section');
+  const subsSection = document.getElementById('subscriptions-section');
+  const ticketsSection = document.getElementById('tickets-section');
 
   queueBtn.classList.remove('active');
   accountsBtn.classList.remove('active');
   reconBtn.classList.remove('active');
+  if (subsBtn) subsBtn.classList.remove('active');
+  if (ticketsBtn) ticketsBtn.classList.remove('active');
+
   hide(queueSection);
   hide(accountsSection);
   hide(reconSection);
+  hide(subsSection);
+  hide(ticketsSection);
 
   if (tab === 'queue') {
     queueBtn.classList.add('active');
@@ -88,6 +118,14 @@ function switchTab(tab) {
     reconBtn.classList.add('active');
     show(reconSection);
     loadReconciliation();
+  } else if (tab === 'subscriptions') {
+    if (subsBtn) subsBtn.classList.add('active');
+    show(subsSection);
+    loadSubscriptions();
+  } else if (tab === 'tickets') {
+    if (ticketsBtn) ticketsBtn.classList.add('active');
+    show(ticketsSection);
+    loadTickets();
   }
 }
 
@@ -654,6 +692,366 @@ async function submitResolveDispute() {
 }
 
 // ---------------------------------------------------------------------------
+// Subscriptions Management (ADR-0023 Module A)
+// ---------------------------------------------------------------------------
+
+async function loadSubscriptions() {
+  hide(document.getElementById('subscriptions-error'));
+  const params = new URLSearchParams();
+  if (subscriptionsState.status) params.set('status', subscriptionsState.status);
+  if (subscriptionsState.search) params.set('search', subscriptionsState.search);
+  params.set('page', subscriptionsState.page);
+  params.set('limit', subscriptionsState.limit);
+
+  let data;
+  try {
+    const res = await api(`/api/subscriptions?${params.toString()}`);
+    if (!res.ok) throw new Error(`subscriptions request failed (${res.status})`);
+    data = await res.json();
+  } catch (e) {
+    if (e.message === 'unauthorized') return;
+    const err = document.getElementById('subscriptions-error');
+    err.textContent = `Failed to load subscriptions: ${e.message}`;
+    show(err);
+    return;
+  }
+
+  const subs = data.subscriptions || [];
+  subscriptionsState.total = data.total || 0;
+
+  const countBadge = document.getElementById('subscriptions-badge');
+  if (countBadge) countBadge.textContent = `${data.total || subs.length}`;
+
+  const tbody = document.querySelector('#subscriptions-table tbody');
+  tbody.textContent = '';
+
+  if (subs.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 6;
+    td.className = 'empty-state';
+    td.textContent = 'No subscriptions found.';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    for (const s of subs) {
+      const tr = document.createElement('tr');
+
+      // Tenant ID
+      const tenantTd = document.createElement('td');
+      tenantTd.innerHTML = `<strong>${s.tenant_id}</strong><br><code class="id-tag">${s.id || ''}</code>`;
+      tr.appendChild(tenantTd);
+
+      // Tier Status
+      const tierTd = document.createElement('td');
+      let badgeClass = 'badge-free';
+      if (s.tier === 'paid') badgeClass = 'badge-paid';
+      else if (s.tier === 'pending_payment') badgeClass = 'badge-pending';
+      else if (s.tier === 'cancelled') badgeClass = 'badge-cancelled';
+      tierTd.innerHTML = `<span class="badge ${badgeClass}">${(s.tier || 'FREE').toUpperCase()}</span>`;
+      tr.appendChild(tierTd);
+
+      // Started At
+      const startedTd = document.createElement('td');
+      startedTd.textContent = s.started_at ? new Date(s.started_at).toLocaleDateString() : '—';
+      tr.appendChild(startedTd);
+
+      // Expires At
+      const expiresTd = document.createElement('td');
+      expiresTd.textContent = s.expires_at ? new Date(s.expires_at).toLocaleDateString() : 'No expiry (Free)';
+      tr.appendChild(expiresTd);
+
+      // Audit Notes
+      const notesTd = document.createElement('td');
+      notesTd.className = 'small';
+      if (s.activated_by) {
+        notesTd.innerHTML += `<span class="muted">Activated by:</span> <code>${s.activated_by}</code><br>`;
+      }
+      if (s.revoked_by) {
+        notesTd.innerHTML += `<span class="muted">Revoked by:</span> <code>${s.revoked_by}</code><br>`;
+      }
+      if (s.reason) {
+        notesTd.innerHTML += `<em>${s.reason}</em>`;
+      }
+      if (!notesTd.innerHTML) notesTd.textContent = '—';
+      tr.appendChild(notesTd);
+
+      // Action
+      const actionTd = document.createElement('td');
+      if (s.tier === 'pending_payment' || s.tier === 'free' || s.tier === 'cancelled') {
+        const actBtn = document.createElement('button');
+        actBtn.type = 'button';
+        actBtn.className = 'btn-sm';
+        actBtn.textContent = 'Activate Plan…';
+        actBtn.addEventListener('click', () => openActivateSubDialog(s));
+        actionTd.appendChild(actBtn);
+      }
+      if (s.tier === 'paid' || s.tier === 'pending_payment') {
+        const revBtn = document.createElement('button');
+        revBtn.type = 'button';
+        revBtn.className = 'btn-sm danger';
+        revBtn.textContent = 'Revoke…';
+        revBtn.style.marginLeft = '0.35rem';
+        revBtn.addEventListener('click', () => openRevokeSubDialog(s));
+        actionTd.appendChild(revBtn);
+      }
+      tr.appendChild(actionTd);
+
+      tbody.appendChild(tr);
+    }
+  }
+
+  // Update Pagination Controls
+  const totalPages = Math.max(1, Math.ceil(subscriptionsState.total / subscriptionsState.limit));
+  document.getElementById('subscriptions-page-info').textContent = `Page ${subscriptionsState.page} of ${totalPages}`;
+  document.getElementById('subscriptions-count').textContent = `Showing ${subs.length} of ${subscriptionsState.total} subscriptions`;
+
+  const prevBtn = document.getElementById('subscriptions-prev-btn');
+  const nextBtn = document.getElementById('subscriptions-next-btn');
+  prevBtn.disabled = subscriptionsState.page <= 1;
+  nextBtn.disabled = subscriptionsState.page >= totalPages;
+}
+
+function openActivateSubDialog(sub) {
+  targetSub = sub;
+  document.getElementById('activate-sub-target').textContent = `Tenant: ${sub.tenant_id} (Current: ${(sub.tier || 'free').toUpperCase()})`;
+  hide(document.getElementById('activate-sub-error'));
+  document.getElementById('activate-sub-dialog').showModal();
+}
+
+async function submitActivateSub() {
+  if (!targetSub) return;
+  const durationDays = parseInt(document.getElementById('activate-sub-duration').value, 10) || 30;
+
+  const res = await api('/api/subscriptions/activate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tenant_id: targetSub.tenant_id,
+      subscription_id: targetSub.id,
+      duration_days: durationDays,
+    }),
+  });
+
+  if (!res.ok) {
+    let msg = `Activation failed (HTTP ${res.status})`;
+    try {
+      const body = await res.json();
+      if (body.error) msg = body.error;
+    } catch { /* keep generic */ }
+    const err = document.getElementById('activate-sub-error');
+    err.textContent = msg;
+    show(err);
+    return;
+  }
+
+  document.getElementById('activate-sub-dialog').close();
+  loadSubscriptions();
+}
+
+function openRevokeSubDialog(sub) {
+  targetSub = sub;
+  document.getElementById('revoke-sub-target').textContent = `Tenant: ${sub.tenant_id} (Active Plan)`;
+  document.getElementById('revoke-sub-reason').value = '';
+  hide(document.getElementById('revoke-sub-error'));
+  document.getElementById('revoke-sub-dialog').showModal();
+}
+
+async function submitRevokeSub() {
+  if (!targetSub) return;
+  const reason = document.getElementById('revoke-sub-reason').value.trim();
+  if (!reason) {
+    const err = document.getElementById('revoke-sub-error');
+    err.textContent = 'A reason is required to revoke a subscription.';
+    show(err);
+    return;
+  }
+
+  const res = await api('/api/subscriptions/revoke', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tenant_id: targetSub.tenant_id,
+      subscription_id: targetSub.id,
+      reason,
+    }),
+  });
+
+  if (!res.ok) {
+    let msg = `Revocation failed (HTTP ${res.status})`;
+    try {
+      const body = await res.json();
+      if (body.error) msg = body.error;
+    } catch { /* keep generic */ }
+    const err = document.getElementById('revoke-sub-error');
+    err.textContent = msg;
+    show(err);
+    return;
+  }
+
+  document.getElementById('revoke-sub-dialog').close();
+  loadSubscriptions();
+}
+
+// ---------------------------------------------------------------------------
+// Support Tickets Management (ADR-0023 Module B)
+// ---------------------------------------------------------------------------
+
+async function loadTickets() {
+  hide(document.getElementById('tickets-error'));
+  const params = new URLSearchParams();
+  if (ticketsState.status) params.set('status', ticketsState.status);
+  if (ticketsState.search) params.set('search', ticketsState.search);
+  params.set('page', ticketsState.page);
+  params.set('limit', ticketsState.limit);
+
+  let data;
+  try {
+    const res = await api(`/api/tickets?${params.toString()}`);
+    if (!res.ok) throw new Error(`tickets request failed (${res.status})`);
+    data = await res.json();
+  } catch (e) {
+    if (e.message === 'unauthorized') return;
+    const err = document.getElementById('tickets-error');
+    err.textContent = `Failed to load tickets: ${e.message}`;
+    show(err);
+    return;
+  }
+
+  const tickets = data.tickets || [];
+  ticketsState.total = data.total || 0;
+
+  const countBadge = document.getElementById('tickets-badge');
+  if (countBadge) countBadge.textContent = `${data.total || tickets.length}`;
+
+  const tbody = document.querySelector('#tickets-table tbody');
+  tbody.textContent = '';
+
+  if (tickets.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 7;
+    td.className = 'empty-state';
+    td.textContent = 'No support tickets found.';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    for (const t of tickets) {
+      const tr = document.createElement('tr');
+
+      // Ticket ID
+      const idTd = document.createElement('td');
+      idTd.innerHTML = `<strong>#${t.ticket_id.slice(-8)}</strong><br><code class="id-tag">${t.ticket_id}</code>`;
+      tr.appendChild(idTd);
+
+      // Customer ID
+      const custTd = document.createElement('td');
+      custTd.innerHTML = `<code>${t.customer_id}</code>`;
+      tr.appendChild(custTd);
+
+      // Context / Subject
+      const contextTd = document.createElement('td');
+      contextTd.innerHTML = `<strong>${t.subject || 'Complaint / Support'}</strong><br><span class="muted small">${t.context_id || 'general'}</span>`;
+      tr.appendChild(contextTd);
+
+      // Status
+      const statusTd = document.createElement('td');
+      let badgeClass = 'badge-pending';
+      if (t.status === 'assigned') badgeClass = 'badge-assigned';
+      else if (t.status === 'resolved') badgeClass = 'badge-resolved';
+      statusTd.innerHTML = `<span class="badge ${badgeClass}">${(t.status || 'PENDING').toUpperCase()}</span>`;
+      tr.appendChild(statusTd);
+
+      // Assigned Agent
+      const agentTd = document.createElement('td');
+      agentTd.innerHTML = t.assigned_agent_id ? `<code>${t.assigned_agent_id}</code>` : '<span class="muted">(unassigned)</span>';
+      tr.appendChild(agentTd);
+
+      // Created At
+      const createdTd = document.createElement('td');
+      createdTd.className = 'small';
+      createdTd.textContent = t.created_at ? new Date(t.created_at).toLocaleString() : '—';
+      tr.appendChild(createdTd);
+
+      // Action
+      const actionTd = document.createElement('td');
+      if (t.status !== 'resolved') {
+        const resolveBtn = document.createElement('button');
+        resolveBtn.type = 'button';
+        resolveBtn.className = 'btn-sm';
+        resolveBtn.textContent = 'Resolve Ticket…';
+        resolveBtn.addEventListener('click', () => openResolveTicketDialog(t));
+        actionTd.appendChild(resolveBtn);
+      } else {
+        actionTd.innerHTML = `<span class="muted small">${t.resolved_by ? 'By ' + t.resolved_by : 'Resolved'}</span>`;
+      }
+      tr.appendChild(actionTd);
+
+      tbody.appendChild(tr);
+    }
+  }
+
+  // Update Pagination Controls
+  const totalPages = Math.max(1, Math.ceil(ticketsState.total / ticketsState.limit));
+  document.getElementById('tickets-page-info').textContent = `Page ${ticketsState.page} of ${totalPages}`;
+  document.getElementById('tickets-count').textContent = `Showing ${tickets.length} of ${ticketsState.total} tickets`;
+
+  const prevBtn = document.getElementById('tickets-prev-btn');
+  const nextBtn = document.getElementById('tickets-next-btn');
+  prevBtn.disabled = ticketsState.page <= 1;
+  nextBtn.disabled = ticketsState.page >= totalPages;
+}
+
+function openResolveTicketDialog(ticket) {
+  targetTicket = ticket;
+  document.getElementById('resolve-ticket-target').textContent = `Ticket ${ticket.ticket_id} (Customer: ${ticket.customer_id})`;
+  const detailsEl = document.getElementById('resolve-ticket-details');
+  detailsEl.innerHTML = `
+    <div class="detail-row"><span>Context ID:</span> <code>${ticket.context_id || 'none'}</code></div>
+    <div class="detail-row"><span>Assigned Agent:</span> <code>${ticket.assigned_agent_id || 'none'}</code></div>
+    <div class="detail-row"><span>Created:</span> <span>${new Date(ticket.created_at).toLocaleString()}</span></div>
+  `;
+  document.getElementById('resolve-ticket-note').value = '';
+  hide(document.getElementById('resolve-ticket-error'));
+  document.getElementById('resolve-ticket-dialog').showModal();
+}
+
+async function submitResolveTicket() {
+  if (!targetTicket) return;
+  const note = document.getElementById('resolve-ticket-note').value.trim();
+  if (!note) {
+    const err = document.getElementById('resolve-ticket-error');
+    err.textContent = 'A resolution note is required to resolve this ticket.';
+    show(err);
+    return;
+  }
+
+  const res = await api('/api/tickets/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ticket_id: targetTicket.ticket_id,
+      resolution_note: note,
+    }),
+  });
+
+  if (!res.ok) {
+    let msg = `Ticket resolution failed (HTTP ${res.status})`;
+    try {
+      const body = await res.json();
+      if (body.error) msg = body.error;
+    } catch { /* keep generic */ }
+    const err = document.getElementById('resolve-ticket-error');
+    err.textContent = msg;
+    show(err);
+    return;
+  }
+
+  document.getElementById('resolve-ticket-dialog').close();
+  loadTickets();
+}
+
+// ---------------------------------------------------------------------------
 // Event Listeners Initialization
 // ---------------------------------------------------------------------------
 
@@ -683,10 +1081,14 @@ document.getElementById('logout-btn').addEventListener('click', () => logout());
 document.getElementById('tab-queue-btn').addEventListener('click', () => switchTab('queue'));
 document.getElementById('tab-accounts-btn').addEventListener('click', () => switchTab('accounts'));
 document.getElementById('tab-reconciliation-btn').addEventListener('click', () => switchTab('reconciliation'));
+document.getElementById('tab-subscriptions-btn').addEventListener('click', () => switchTab('subscriptions'));
+document.getElementById('tab-tickets-btn').addEventListener('click', () => switchTab('tickets'));
 
 document.getElementById('refresh-queue-btn').addEventListener('click', loadQueue);
 document.getElementById('refresh-accounts-btn').addEventListener('click', loadAccounts);
 document.getElementById('refresh-reconciliation-btn').addEventListener('click', loadReconciliation);
+document.getElementById('refresh-subscriptions-btn').addEventListener('click', loadSubscriptions);
+document.getElementById('refresh-tickets-btn').addEventListener('click', loadTickets);
 
 document.getElementById('review-cancel').addEventListener('click', () => document.getElementById('review-dialog').close());
 document.getElementById('review-submit').addEventListener('click', submitReview);
@@ -702,6 +1104,15 @@ document.getElementById('reactivate-submit').addEventListener('click', submitRea
 
 document.getElementById('resolve-dispute-cancel').addEventListener('click', () => document.getElementById('resolve-dispute-dialog').close());
 document.getElementById('resolve-dispute-submit').addEventListener('click', submitResolveDispute);
+
+document.getElementById('activate-sub-cancel').addEventListener('click', () => document.getElementById('activate-sub-dialog').close());
+document.getElementById('activate-sub-submit').addEventListener('click', submitActivateSub);
+
+document.getElementById('revoke-sub-cancel').addEventListener('click', () => document.getElementById('revoke-sub-dialog').close());
+document.getElementById('revoke-sub-submit').addEventListener('click', submitRevokeSub);
+
+document.getElementById('resolve-ticket-cancel').addEventListener('click', () => document.getElementById('resolve-ticket-dialog').close());
+document.getElementById('resolve-ticket-submit').addEventListener('click', submitResolveTicket);
 
 // Accounts Toolbar and Search
 document.getElementById('accounts-filter-form').addEventListener('submit', (e) => {
@@ -754,4 +1165,71 @@ document.getElementById('reconciliation-next-btn').addEventListener('click', () 
     loadReconciliation();
   }
 });
+
+// Subscriptions Toolbar & Pagination
+document.getElementById('subscriptions-filter-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  subscriptionsState.search = document.getElementById('subscriptions-search-input').value.trim();
+  subscriptionsState.status = document.getElementById('subscriptions-status-filter').value;
+  subscriptionsState.page = 1;
+  loadSubscriptions();
+});
+
+document.getElementById('subscriptions-reset-btn').addEventListener('click', () => {
+  document.getElementById('subscriptions-search-input').value = '';
+  document.getElementById('subscriptions-status-filter').value = '';
+  subscriptionsState.search = '';
+  subscriptionsState.status = '';
+  subscriptionsState.page = 1;
+  loadSubscriptions();
+});
+
+document.getElementById('subscriptions-prev-btn').addEventListener('click', () => {
+  if (subscriptionsState.page > 1) {
+    subscriptionsState.page--;
+    loadSubscriptions();
+  }
+});
+
+document.getElementById('subscriptions-next-btn').addEventListener('click', () => {
+  const totalPages = Math.ceil(subscriptionsState.total / subscriptionsState.limit);
+  if (subscriptionsState.page < totalPages) {
+    subscriptionsState.page++;
+    loadSubscriptions();
+  }
+});
+
+// Support Tickets Toolbar & Pagination
+document.getElementById('tickets-filter-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  ticketsState.search = document.getElementById('tickets-search-input').value.trim();
+  ticketsState.status = document.getElementById('tickets-status-filter').value;
+  ticketsState.page = 1;
+  loadTickets();
+});
+
+document.getElementById('tickets-reset-btn').addEventListener('click', () => {
+  document.getElementById('tickets-search-input').value = '';
+  document.getElementById('tickets-status-filter').value = '';
+  ticketsState.search = '';
+  ticketsState.status = '';
+  ticketsState.page = 1;
+  loadTickets();
+});
+
+document.getElementById('tickets-prev-btn').addEventListener('click', () => {
+  if (ticketsState.page > 1) {
+    ticketsState.page--;
+    loadTickets();
+  }
+});
+
+document.getElementById('tickets-next-btn').addEventListener('click', () => {
+  const totalPages = Math.ceil(ticketsState.total / ticketsState.limit);
+  if (ticketsState.page < totalPages) {
+    ticketsState.page++;
+    loadTickets();
+  }
+});
+
 
