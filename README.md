@@ -31,7 +31,7 @@ go 1.26+
 export INTERNAL_SERVICE_TOKEN=<internal token>   # required, fail-fast if empty
 export AUTH_SERVICE_URL=http://localhost:3002    # default: https://auth-service:3002
 export USER_SERVICE_URL=http://localhost:3003    # default: https://user-service:3003
-export CHAT_SERVICE_URL=http://localhost:3005    # default: https://chat-service:3005
+export CHAT_SERVICE_URL=http://localhost:3001    # default: https://chat-service:3001
 export PORT=8090                                 # default
 
 go run ./cmd/server
@@ -49,7 +49,7 @@ docker run --rm -p 8090:8090 \
   -e INTERNAL_SERVICE_TOKEN=... \
   -e AUTH_SERVICE_URL=https://auth-service:3002 \
   -e USER_SERVICE_URL=https://user-service:3003 \
-  -e CHAT_SERVICE_URL=https://chat-service:3005 \
+  -e CHAT_SERVICE_URL=https://chat-service:3001 \
   kyc-reviewer-console
 ```
 

@@ -36,6 +36,24 @@ ADR-0022, and ADR-0023 (Accepted, scope closed at 5 tabs).
 - CI: `.github/workflows/ci.yml` (gofmt, build, vet, test, gosec);
   `.github/workflows/contract-sync.yml` responding to saas-core's `reviewer-api-contract` repository_dispatch.
 
+## Recent Changes
+
+### CSS Hidden-Specificity Fix & chat-service Port Alignment (`a1c12c7`)
+
+- **CSS Specificity Bug**:
+  - *Root Cause*: `web/style.css` defined `#login-view { display: grid; ... }` with ID-selector specificity, overriding the User Agent stylesheet's `[hidden] { display: none; }` default. When `app.js` executed `hide(document.getElementById('login-view'))`, the element retained `display: grid`, causing the login card to render over the dashboard.
+  - *Fix*: Added global `[hidden] { display: none !important; }` rule near the top of `web/style.css`.
+- **chat-service Port Misconfiguration**:
+  - *Root Cause*: `internal/config/config.go` and `internal/proxy/proxy.go` defaulted `ChatServiceURL` to `https://chat-service:3005`, but `chat-service` listens on port `3001`. This caused `GET /api/tickets` to fail with HTTP 502 (`dial tcp 172.20.0.8:3005: connect: connection refused`).
+  - *Fix*: Corrected fallback default to `https://chat-service:3001` across config loaders, proxy constructors, `README.md`, and unit tests.
+- **Dynamic Badge Counters & Session Bootstrap**:
+  - Added `refreshBadgeCounts()` in `web/app.js` to query `/api/queue`, `/api/reconciliation/queue`, `/api/subscriptions`, and `/api/tickets` in parallel, updating all tab pill counters immediately upon sign-in.
+  - Added session bootstrap check on page reload for authenticated reviewer tokens.
+- **Verification Evidence**:
+  - All Go unit tests passing (`go test -v ./...`).
+  - Headless Chromium CDP browser automation test proved pre-login `#login-view: grid` / `#app-view: none` and post-login `#login-view: none` / `#app-view: block` computed styles (0 overlap).
+  - All 5 routes (`/api/queue`, `/api/accounts`, `/api/reconciliation/queue`, `/api/subscriptions`, `/api/tickets`) return `200 OK` on production stack (`quickdelivery-vm`).
+
 ## Standing Rules
 
 - Every code change updates this file in the same commit.
