@@ -48,7 +48,7 @@ func Load() (*Config, error) {
 
 	chatServiceURL := os.Getenv("CHAT_SERVICE_URL")
 	if chatServiceURL == "" {
-		chatServiceURL = "https://chat-service:3005"
+		chatServiceURL = "https://chat-service:3001"
 	}
 
 	appEnv := os.Getenv("APP_ENV")

@@ -28,14 +28,22 @@ func TestLoad_DefaultsAndExplicitValues(t *testing.T) {
 	if cfg.AuthServiceURL != "https://auth-service:3002" {
 		t.Errorf("expected default auth-service URL, got %q", cfg.AuthServiceURL)
 	}
+	if cfg.UserServiceURL != "https://user-service:3003" {
+		t.Errorf("expected default user-service URL, got %q", cfg.UserServiceURL)
+	}
+	if cfg.ChatServiceURL != "https://chat-service:3001" {
+		t.Errorf("expected default chat-service URL, got %q", cfg.ChatServiceURL)
+	}
 
 	t.Setenv("PORT", "9999")
 	t.Setenv("AUTH_SERVICE_URL", "https://auth-service.internal:3002")
+	t.Setenv("USER_SERVICE_URL", "https://user-service.internal:3003")
+	t.Setenv("CHAT_SERVICE_URL", "https://chat-service.internal:3001")
 	cfg, err = Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if cfg.Port != "9999" || cfg.AuthServiceURL != "https://auth-service.internal:3002" {
+	if cfg.Port != "9999" || cfg.AuthServiceURL != "https://auth-service.internal:3002" || cfg.UserServiceURL != "https://user-service.internal:3003" || cfg.ChatServiceURL != "https://chat-service.internal:3001" {
 		t.Errorf("explicit env values not honored: %+v", cfg)
 	}
 }

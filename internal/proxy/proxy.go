@@ -29,11 +29,11 @@ type ReviewerProxy struct {
 }
 
 func New(internalServiceToken, authServiceURL string, client *http.Client) *ReviewerProxy {
-	return NewWithServices(internalServiceToken, authServiceURL, "https://user-service:3003", "https://chat-service:3005", client)
+	return NewWithServices(internalServiceToken, authServiceURL, "https://user-service:3003", "https://chat-service:3001", client)
 }
 
 func NewWithUserService(internalServiceToken, authServiceURL, userServiceURL string, client *http.Client) *ReviewerProxy {
-	return NewWithServices(internalServiceToken, authServiceURL, userServiceURL, "https://chat-service:3005", client)
+	return NewWithServices(internalServiceToken, authServiceURL, userServiceURL, "https://chat-service:3001", client)
 }
 
 func NewWithServices(internalServiceToken, authServiceURL, userServiceURL, chatServiceURL string, client *http.Client) *ReviewerProxy {
@@ -44,7 +44,7 @@ func NewWithServices(internalServiceToken, authServiceURL, userServiceURL, chatS
 		userServiceURL = "https://user-service:3003"
 	}
 	if chatServiceURL == "" {
-		chatServiceURL = "https://chat-service:3005"
+		chatServiceURL = "https://chat-service:3001"
 	}
 	return &ReviewerProxy{
 		internalServiceToken: internalServiceToken,

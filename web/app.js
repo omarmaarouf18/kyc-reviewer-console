@@ -1049,6 +1049,38 @@ async function submitResolveTicket() {
 
   document.getElementById('resolve-ticket-dialog').close();
   loadTickets();
+  refreshBadgeCounts();
+}
+
+async function refreshBadgeCounts() {
+  if (!sessionStorage.getItem(tokenKey)) return;
+  try {
+    const [queueRes, reconRes, subsRes, ticketsRes] = await Promise.allSettled([
+      api('/api/queue').then(r => r.ok ? r.json() : []),
+      api('/api/reconciliation/queue?page=1&limit=1').then(r => r.ok ? r.json() : {}),
+      api('/api/subscriptions?page=1&limit=1').then(r => r.ok ? r.json() : {}),
+      api('/api/tickets?page=1&limit=1').then(r => r.ok ? r.json() : {}),
+    ]);
+
+    if (queueRes.status === 'fulfilled' && Array.isArray(queueRes.value)) {
+      const b = document.getElementById('queue-badge');
+      if (b) b.textContent = `${queueRes.value.length}`;
+    }
+    if (reconRes.status === 'fulfilled' && reconRes.value) {
+      const b = document.getElementById('reconciliation-badge');
+      if (b) b.textContent = `${reconRes.value.total ?? (reconRes.value.disputes?.length || 0)}`;
+    }
+    if (subsRes.status === 'fulfilled' && subsRes.value) {
+      const b = document.getElementById('subscriptions-badge');
+      if (b) b.textContent = `${subsRes.value.total ?? (subsRes.value.subscriptions?.length || 0)}`;
+    }
+    if (ticketsRes.status === 'fulfilled' && ticketsRes.value) {
+      const b = document.getElementById('tickets-badge');
+      if (b) b.textContent = `${ticketsRes.value.total ?? (ticketsRes.value.tickets?.length || 0)}`;
+    }
+  } catch {
+    // Non-critical background count sync
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1068,6 +1100,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     hide(document.getElementById('login-error'));
     show(document.getElementById('app-view'));
     switchTab('queue');
+    refreshBadgeCounts();
   } catch (err) {
     sessionStorage.removeItem(tokenKey);
     const el = document.getElementById('login-error');
@@ -1231,5 +1264,17 @@ document.getElementById('tickets-next-btn').addEventListener('click', () => {
     loadTickets();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Bootstrap session on reload if already signed in
+// ---------------------------------------------------------------------------
+const existingSessionToken = sessionStorage.getItem(tokenKey);
+if (existingSessionToken) {
+  hide(document.getElementById('login-view'));
+  hide(document.getElementById('login-error'));
+  show(document.getElementById('app-view'));
+  switchTab('queue');
+  refreshBadgeCounts();
+}
 
 
