@@ -549,6 +549,9 @@ func (p *ReviewerProxy) ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rp := httputil.NewSingleHostReverseProxy(target)
+	if p.client != nil && p.client.Transport != nil {
+		rp.Transport = p.client.Transport
+	}
 	origDirector := rp.Director
 	rp.Director = func(req *http.Request) {
 		origDirector(req)
