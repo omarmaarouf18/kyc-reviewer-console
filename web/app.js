@@ -6,6 +6,9 @@
 const tokenKey = 'reviewer_token';
 
 let activeTab = 'queue';
+let currentReviewer = null;
+let activeChatWs = null;
+let activeChatTicket = null;
 let dialogUser = null;
 let targetAccount = null;
 
@@ -975,15 +978,63 @@ async function loadTickets() {
 
       // Action
       const actionTd = document.createElement('td');
-      if (t.status !== 'resolved') {
+      if (t.status === 'pending') {
+        const acceptBtn = document.createElement('button');
+        acceptBtn.type = 'button';
+        acceptBtn.className = 'btn-sm';
+        acceptBtn.textContent = 'Accept Ticket';
+        acceptBtn.addEventListener('click', async () => {
+          try {
+            acceptBtn.disabled = true;
+            acceptBtn.textContent = 'Accepting...';
+            const res = await api('/api/tickets/accept', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ticket_id: t.ticket_id }),
+            });
+            if (!res.ok) {
+              const errJson = await res.json().catch(() => ({}));
+              throw new Error(errJson.error || `HTTP ${res.status}`);
+            }
+            const data = await res.json();
+            const updated = data.ticket || { ...t, status: 'assigned' };
+            await loadTickets();
+            openTicketChat(updated);
+          } catch (e) {
+            alert(`Failed to accept ticket: ${e.message}`);
+            acceptBtn.disabled = false;
+            acceptBtn.textContent = 'Accept Ticket';
+          }
+        });
+        actionTd.appendChild(acceptBtn);
+      } else if (t.status === 'assigned') {
+        const chatBtn = document.createElement('button');
+        chatBtn.type = 'button';
+        chatBtn.className = 'btn-sm secondary';
+        chatBtn.textContent = 'Open Chat';
+        chatBtn.style.marginRight = '0.35rem';
+        chatBtn.addEventListener('click', () => openTicketChat(t));
+        actionTd.appendChild(chatBtn);
+
         const resolveBtn = document.createElement('button');
         resolveBtn.type = 'button';
         resolveBtn.className = 'btn-sm';
-        resolveBtn.textContent = 'Resolve Ticket…';
+        resolveBtn.textContent = 'Resolve…';
         resolveBtn.addEventListener('click', () => openResolveTicketDialog(t));
         actionTd.appendChild(resolveBtn);
       } else {
-        actionTd.innerHTML = `<span class="muted small">${t.resolved_by ? 'By ' + t.resolved_by : 'Resolved'}</span>`;
+        const chatBtn = document.createElement('button');
+        chatBtn.type = 'button';
+        chatBtn.className = 'btn-sm secondary';
+        chatBtn.textContent = 'View Chat';
+        chatBtn.style.marginRight = '0.35rem';
+        chatBtn.addEventListener('click', () => openTicketChat(t));
+        actionTd.appendChild(chatBtn);
+
+        const noteSpan = document.createElement('span');
+        noteSpan.className = 'muted small';
+        noteSpan.textContent = t.resolved_by ? 'By ' + t.resolved_by : 'Resolved';
+        actionTd.appendChild(noteSpan);
       }
       tr.appendChild(actionTd);
 
@@ -1048,8 +1099,171 @@ async function submitResolveTicket() {
   }
 
   document.getElementById('resolve-ticket-dialog').close();
+  if (activeChatTicket && activeChatTicket.ticket_id === targetTicket.ticket_id) {
+    activeChatTicket.status = 'resolved';
+    const resolveBtn = document.getElementById('chat-resolve-btn');
+    if (resolveBtn) {
+      resolveBtn.disabled = true;
+      resolveBtn.textContent = 'Resolved';
+    }
+    const input = document.getElementById('ticket-chat-input');
+    if (input) {
+      input.disabled = true;
+      input.placeholder = 'This ticket has been resolved.';
+    }
+    const sendBtn = document.getElementById('ticket-chat-send-btn');
+    if (sendBtn) sendBtn.disabled = true;
+  }
   loadTickets();
   refreshBadgeCounts();
+}
+
+async function initReviewerIdentity() {
+  try {
+    const res = await api('/api/me');
+    if (res.ok) {
+      currentReviewer = await res.json();
+    }
+  } catch (_) {}
+}
+
+function closeTicketChat() {
+  if (activeChatWs) {
+    try { activeChatWs.close(); } catch (_) {}
+    activeChatWs = null;
+  }
+  activeChatTicket = null;
+  hide(document.getElementById('ticket-chat-card'));
+}
+
+async function openTicketChat(ticket) {
+  activeChatTicket = ticket;
+  const card = document.getElementById('ticket-chat-card');
+  show(card);
+
+  document.getElementById('chat-ticket-title').textContent = `Ticket #${ticket.ticket_id.slice(-8)} — ${ticket.subject || 'Support'}`;
+  document.getElementById('chat-ticket-meta').textContent = `Customer: ${ticket.customer_id} | Status: ${(ticket.status || '').toUpperCase()}`;
+
+  const resolveBtn = document.getElementById('chat-resolve-btn');
+  if (ticket.status === 'resolved') {
+    resolveBtn.disabled = true;
+    resolveBtn.textContent = 'Resolved';
+  } else {
+    resolveBtn.disabled = false;
+    resolveBtn.textContent = 'Resolve Ticket…';
+    resolveBtn.onclick = () => openResolveTicketDialog(ticket);
+  }
+
+  const chatInput = document.getElementById('ticket-chat-input');
+  const sendBtn = document.getElementById('ticket-chat-send-btn');
+  if (ticket.status === 'resolved') {
+    chatInput.disabled = true;
+    chatInput.placeholder = 'This ticket has been resolved.';
+    sendBtn.disabled = true;
+  } else {
+    chatInput.disabled = false;
+    chatInput.placeholder = 'Type a message to the customer...';
+    sendBtn.disabled = false;
+  }
+
+  const messagesContainer = document.getElementById('ticket-chat-messages');
+  messagesContainer.innerHTML = '<div class="muted small" style="text-align:center;padding:1rem;">Loading conversation history...</div>';
+
+  // 1. Fetch channel history
+  try {
+    const res = await api(`/api/tickets/history?channel=ticket:${encodeURIComponent(ticket.ticket_id)}&limit=50`);
+    messagesContainer.innerHTML = '';
+    if (res.ok) {
+      const msgs = await res.json();
+      if (Array.isArray(msgs) && msgs.length > 0) {
+        const sorted = [...msgs].sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+        for (const m of sorted) {
+          appendChatMessage(m);
+        }
+      } else {
+        messagesContainer.innerHTML = '<div class="muted small" style="text-align:center;padding:1rem;">No messages in this ticket yet.</div>';
+      }
+    }
+  } catch (err) {
+    messagesContainer.innerHTML = `<div class="error" style="text-align:center;padding:1rem;">Failed to load chat history: ${err.message}</div>`;
+  }
+
+  // 2. Connect WebSocket
+  if (activeChatWs) {
+    try { activeChatWs.close(); } catch (_) {}
+    activeChatWs = null;
+  }
+
+  const token = sessionStorage.getItem(tokenKey) || '';
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${proto}//${location.host}/api/chat/ws?token=${encodeURIComponent(token)}`;
+
+  try {
+    const ws = new WebSocket(wsUrl);
+    activeChatWs = ws;
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        action: 'subscribe',
+        channel: `ticket:${ticket.ticket_id}`
+      }));
+    };
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.channel === `ticket:${ticket.ticket_id}`) {
+          if (messagesContainer.querySelector('.muted') || messagesContainer.querySelector('.error')) {
+            messagesContainer.innerHTML = '';
+          }
+          appendChatMessage(msg);
+        }
+      } catch (e) {
+        console.error('Error handling WS message', e);
+      }
+    };
+    ws.onerror = (e) => {
+      console.warn('WebSocket error in ticket chat', e);
+    };
+  } catch (e) {
+    console.error('Failed to initialize WebSocket', e);
+  }
+}
+
+function appendChatMessage(msg) {
+  const container = document.getElementById('ticket-chat-messages');
+  if (!container) return;
+
+  if (msg.type === 'system') {
+    const sys = document.createElement('div');
+    sys.className = 'chat-system-message';
+    sys.textContent = msg.content;
+    container.appendChild(sys);
+    container.scrollTop = container.scrollHeight;
+    return;
+  }
+
+  const isReviewer = (currentReviewer && msg.sender_id === currentReviewer.id) || (msg.sender_username && msg.sender_username.includes('Reviewer'));
+  const bubble = document.createElement('div');
+  bubble.className = `chat-bubble ${isReviewer ? 'reviewer' : 'customer'}`;
+
+  const sender = document.createElement('div');
+  sender.className = 'sender';
+  sender.textContent = msg.sender_username || msg.sender_id || 'User';
+  bubble.appendChild(sender);
+
+  const text = document.createElement('div');
+  text.className = 'text';
+  text.textContent = msg.content || '';
+  bubble.appendChild(text);
+
+  if (msg.timestamp) {
+    const timeEl = document.createElement('div');
+    timeEl.className = 'time';
+    timeEl.textContent = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    bubble.appendChild(timeEl);
+  }
+
+  container.appendChild(bubble);
+  container.scrollTop = container.scrollHeight;
 }
 
 async function refreshBadgeCounts() {
@@ -1099,6 +1313,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     hide(document.getElementById('login-view'));
     hide(document.getElementById('login-error'));
     show(document.getElementById('app-view'));
+    initReviewerIdentity();
     switchTab('queue');
     refreshBadgeCounts();
   } catch (err) {
@@ -1265,6 +1480,29 @@ document.getElementById('tickets-next-btn').addEventListener('click', () => {
   }
 });
 
+// Ticket Chat Form & Close Listeners
+const ticketChatForm = document.getElementById('ticket-chat-form');
+if (ticketChatForm) {
+  ticketChatForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!activeChatTicket || !activeChatWs || activeChatWs.readyState !== WebSocket.OPEN) return;
+    const input = document.getElementById('ticket-chat-input');
+    const content = input.value.trim();
+    if (!content) return;
+    activeChatWs.send(JSON.stringify({
+      action: 'message',
+      channel: `ticket:${activeChatTicket.ticket_id}`,
+      content: content,
+    }));
+    input.value = '';
+  });
+}
+
+const chatCloseBtn = document.getElementById('chat-close-btn');
+if (chatCloseBtn) {
+  chatCloseBtn.addEventListener('click', closeTicketChat);
+}
+
 // ---------------------------------------------------------------------------
 // Bootstrap session on reload if already signed in
 // ---------------------------------------------------------------------------
@@ -1273,6 +1511,7 @@ if (existingSessionToken) {
   hide(document.getElementById('login-view'));
   hide(document.getElementById('login-error'));
   show(document.getElementById('app-view'));
+  initReviewerIdentity();
   switchTab('queue');
   refreshBadgeCounts();
 }

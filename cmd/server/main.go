@@ -68,8 +68,13 @@ func main() {
 	mux.HandleFunc("/api/subscriptions", p.Subscriptions)
 	mux.HandleFunc("/api/subscriptions/activate", p.ActivateSubscription)
 	mux.HandleFunc("/api/subscriptions/revoke", p.RevokeSubscription)
+	mux.HandleFunc("/api/me", p.Me)
 	mux.HandleFunc("/api/tickets", p.Tickets)
+	mux.HandleFunc("/api/tickets/accept", p.AcceptTicket)
+	mux.HandleFunc("/api/tickets/history", p.TicketsHistory)
+	mux.HandleFunc("/api/chat/history", p.TicketsHistory)
 	mux.HandleFunc("/api/tickets/resolve", p.ResolveTicket)
+	mux.HandleFunc("/api/chat/ws", p.ChatWebSocket)
 	mux.Handle("/", http.FileServer(http.Dir("web")))
 
 	addr := ":" + cfg.Port

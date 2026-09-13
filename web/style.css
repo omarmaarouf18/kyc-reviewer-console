@@ -344,6 +344,118 @@ dialog .doc-grid { margin-bottom: 0.75rem; }
   margin: 0.5rem 0 0.75rem;
 }
 
+/* Live Ticket Chat Component */
+.ticket-chat-card {
+  margin-top: 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 480px;
+  box-shadow: 0 4px 12px rgba(20, 30, 50, 0.05);
+}
+
+.chat-header {
+  padding: 0.85rem 1.25rem;
+  background: #edf2f7;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-header h3 {
+  margin: 0 0 0.2rem;
+  font-size: 1.05rem;
+}
+
+.chat-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: #fafbfc;
+}
+
+.chat-bubble {
+  max-width: 75%;
+  padding: 0.65rem 0.95rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.chat-bubble.reviewer {
+  align-self: flex-end;
+  background: var(--primary);
+  color: #ffffff;
+  border-bottom-right-radius: 2px;
+}
+
+.chat-bubble.customer {
+  align-self: flex-start;
+  background: #ffffff;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 2px;
+}
+
+.chat-bubble .sender {
+  font-weight: 600;
+  font-size: 0.75rem;
+  margin-bottom: 0.25rem;
+  opacity: 0.85;
+}
+
+.chat-bubble .time {
+  font-size: 0.7rem;
+  opacity: 0.75;
+  margin-top: 0.25rem;
+  text-align: right;
+}
+
+.chat-system-message {
+  align-self: center;
+  background: #e2e8f0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 12px;
+  text-align: center;
+  max-width: 90%;
+}
+
+.chat-input-bar {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+.chat-input-bar input {
+  flex: 1;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.chat-input-bar input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
 @media (max-width: 40rem) {
   th:nth-child(3), td:nth-child(3),
   th:nth-child(5), td:nth-child(5) { display: none; }

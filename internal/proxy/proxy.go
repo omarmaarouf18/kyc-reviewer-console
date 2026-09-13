@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"strings"
 	"time"
@@ -484,4 +485,75 @@ func (p *ReviewerProxy) ResolveTicket(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = io.NopCloser(bytes.NewReader(payload))
 	p.forwardToService(w, r, p.chatServiceURL, "/admin/tickets/resolve")
+}
+
+// Me returns the authenticated reviewer profile claims from auth-service.
+// GET /auth/reviewer/verify
+func (p *ReviewerProxy) Me(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	p.forwardToService(w, r, p.authServiceURL, "/auth/reviewer/verify")
+}
+
+type acceptTicketRequest struct {
+	TicketID string `json:"ticket_id"`
+}
+
+// AcceptTicket proxies POST /admin/tickets/accept to chat-service.
+func (p *ReviewerProxy) AcceptTicket(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"use POST"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req acceptTicketRequest
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	if err := dec.Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.TicketID) == "" {
+		http.Error(w, `{"error":"ticket_id is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	payload, err := json.Marshal(req)
+	if err != nil {
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(payload))
+	p.forwardToService(w, r, p.chatServiceURL, "/admin/tickets/accept")
+}
+
+// TicketsHistory proxies GET /chat/history to chat-service.
+func (p *ReviewerProxy) TicketsHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	upstreamPath := "/chat/history"
+	if r.URL.RawQuery != "" {
+		upstreamPath += "?" + r.URL.RawQuery
+	}
+	p.forwardToService(w, r, p.chatServiceURL, upstreamPath)
+}
+
+// ChatWebSocket reverse-proxies WebSocket connections to chat-service.
+func (p *ReviewerProxy) ChatWebSocket(w http.ResponseWriter, r *http.Request) {
+	target, err := url.Parse(p.chatServiceURL)
+	if err != nil {
+		http.Error(w, `{"error":"invalid chat service URL"}`, http.StatusInternalServerError)
+		return
+	}
+	rp := httputil.NewSingleHostReverseProxy(target)
+	origDirector := rp.Director
+	rp.Director = func(req *http.Request) {
+		origDirector(req)
+		req.URL.Path = "/chat/ws"
+		req.Host = target.Host
+	}
+	rp.ServeHTTP(w, r)
 }

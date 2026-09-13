@@ -241,6 +241,27 @@
           <button id="tickets-next-btn" type="button" class="secondary" disabled>Next &rarr;</button>
         </div>
       </div>
+
+      <!-- Live Ticket Chat View -->
+      <div id="ticket-chat-card" class="ticket-chat-card" hidden>
+        <div class="chat-header">
+          <div>
+            <h3 id="chat-ticket-title">Ticket Chat</h3>
+            <span id="chat-ticket-meta" class="muted small"></span>
+          </div>
+          <div class="chat-actions">
+            <button id="chat-resolve-btn" type="button" class="btn-sm">Resolve Ticket…</button>
+            <button id="chat-close-btn" type="button" class="btn-sm secondary">Close Chat</button>
+          </div>
+        </div>
+
+        <div id="ticket-chat-messages" class="chat-messages"></div>
+
+        <form id="ticket-chat-form" class="chat-input-bar">
+          <input type="text" id="ticket-chat-input" placeholder="Type a message to the customer..." autocomplete="off" />
+          <button type="submit" id="ticket-chat-send-btn">Send</button>
+        </form>
+      </div>
     </section>
 
     <!-- Dialog: Review KYC Submission -->

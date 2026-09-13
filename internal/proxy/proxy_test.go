@@ -579,3 +579,71 @@ func TestResolveTicket_ValidationsAndForwarding(t *testing.T) {
 		}
 	})
 }
+
+func TestMe_ForwardsToAuthService(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`{"id":"rev-123","name":"Test Reviewer"}`)}
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	p := NewWithServices("secret-internal-token", upstream.URL, "https://user-service", "https://chat-service", upstream.Client())
+	t.Cleanup(upstream.Close)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req.Header.Set("X-Reviewer-Token", "reviewer-token-abc")
+	rec := httptest.NewRecorder()
+	p.Me(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if stub.gotInternal != "secret-internal-token" || stub.gotReviewer != "reviewer-token-abc" {
+		t.Errorf("tokens mismatch: internal=%q reviewer=%q", stub.gotInternal, stub.gotReviewer)
+	}
+	if stub.gotPath != "/auth/reviewer/verify" {
+		t.Errorf("unexpected path: %q", stub.gotPath)
+	}
+}
+
+func TestAcceptTicket_ValidationsAndForwarding(t *testing.T) {
+	t.Run("missing ticket_id", func(t *testing.T) {
+		stub := &upstreamStub{t: t, statusCode: http.StatusOK}
+		upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+		p := NewWithServices("secret-internal-token", "https://auth-service", "https://user-service", upstream.URL, upstream.Client())
+		t.Cleanup(upstream.Close)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/tickets/accept", strings.NewReader(`{"ticket_id":""}`))
+		req.Header.Set("X-Reviewer-Token", "tok")
+		rec := httptest.NewRecorder()
+		p.AcceptTicket(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "ticket_id is required") {
+			t.Errorf("expected error containing 'ticket_id is required', got %s", rec.Body.String())
+		}
+	})
+
+	t.Run("valid accept forwarded", func(t *testing.T) {
+		stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+			responseBytes: []byte(`{"message":"ticket accepted successfully","ticket":{"ticket_id":"tkt-200","status":"assigned"}}`)}
+		upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+		p := NewWithServices("secret-internal-token", "https://auth-service", "https://user-service", upstream.URL, upstream.Client())
+		t.Cleanup(upstream.Close)
+
+		body := `{"ticket_id":"tkt-200"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/tickets/accept", strings.NewReader(body))
+		req.Header.Set("X-Reviewer-Token", "tok-accept")
+		rec := httptest.NewRecorder()
+		p.AcceptTicket(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if stub.gotBody["ticket_id"] != "tkt-200" {
+			t.Errorf("ticket_id mismatch: %+v", stub.gotBody)
+		}
+		if stub.gotPath != "/admin/tickets/accept" {
+			t.Errorf("unexpected path: %q", stub.gotPath)
+		}
+	})
+}
