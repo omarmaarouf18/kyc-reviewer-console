@@ -578,6 +578,45 @@ func TestResolveTicket_ValidationsAndForwarding(t *testing.T) {
 			t.Errorf("unexpected path: %q", stub.gotPath)
 		}
 	})
+
+	t.Run("Upstream 503 Service Unavailable Relayed As 503", func(t *testing.T) {
+		stub := &upstreamStub{t: t, statusCode: http.StatusServiceUnavailable,
+			responseBytes: []byte(`{"error":"service_unavailable","message":"Authentication service is temporarily unavailable."}`)}
+		upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+		p := NewWithServices("secret-internal-token", "https://auth-service", "https://user-service", upstream.URL, upstream.Client())
+		t.Cleanup(upstream.Close)
+
+		body := `{"ticket_id":"tkt-100","resolution_note":"Resolved note"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/tickets/resolve", strings.NewReader(body))
+		req.Header.Set("X-Reviewer-Token", "tok-resolved")
+		rec := httptest.NewRecorder()
+		p.ResolveTicket(rec, req)
+
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if rec.Code == http.StatusUnauthorized {
+			t.Fatal("upstream 503 must NEVER be converted into 401 Unauthorized")
+		}
+	})
+
+	t.Run("Upstream 401 Unauthorized Relayed As 401", func(t *testing.T) {
+		stub := &upstreamStub{t: t, statusCode: http.StatusUnauthorized,
+			responseBytes: []byte(`{"error":"unauthorized"}`)}
+		upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+		p := NewWithServices("secret-internal-token", "https://auth-service", "https://user-service", upstream.URL, upstream.Client())
+		t.Cleanup(upstream.Close)
+
+		body := `{"ticket_id":"tkt-100","resolution_note":"Resolved note"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/tickets/resolve", strings.NewReader(body))
+		req.Header.Set("X-Reviewer-Token", "tok-resolved")
+		rec := httptest.NewRecorder()
+		p.ResolveTicket(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
 }
 
 func TestMe_ForwardsToAuthService(t *testing.T) {

@@ -38,6 +38,15 @@ ADR-0022, and ADR-0023 (Accepted, scope closed at 5 tabs).
 
 ## Recent Changes
 
+### Ticket Resolve & Dialog Unhandled Rejection Prevention and Transient Error Handling
+
+- **Unhandled Promise Rejection & Reviewer Kickout**:
+  - *Root Cause*: `submitResolveTicket()` called `await api('/api/tickets/resolve', ...)` without a `try...catch` block. When `api()` encountered an HTTP 401 (caused by upstream transient auth failure or token expiry), it cleared session and threw `new Error('unauthorized')`. The unhandled rejection manifested as a browser crash while the reviewer was kicked out to the login view. Additionally, other action dialogs (`openDocument`, `submitReview`, `submitSuspend`, `submitReactivate`, `submitResolveDispute`, `submitActivateSub`, `submitRevokeSub`) lacked `try...catch` guards around `api()` calls.
+  - *Fix*: Wrapped `submitResolveTicket()` and all sibling dialog submit handlers in `try...catch...finally` blocks. Documented session policy in `api()`: only genuine 401s invoke `logout()`, while transient 503/502/429 codes return to callers for in-app retryable messaging. Added button loading state (`Resolving...` -> `Confirm Resolve`) and error rendering in `#resolve-ticket-error`.
+- **Verification Evidence**:
+  - Node.js test suite (`web/app_test.js`) verifying 401 logout, 503 retryable non-logout, and `submitResolveTicket` crash prevention passed 100% (`node --test web/app_test.js`).
+  - Go proxy tests in `internal/proxy/proxy_test.go` (`Upstream 503 Service Unavailable Relayed As 503`, `Upstream 401 Unauthorized Relayed As 401`) passed 100% (`go test -count=1 ./...`).
+
 ### CSS Hidden-Specificity Fix & chat-service Port Alignment (`a1c12c7`)
 
 - **CSS Specificity Bug**:

@@ -58,6 +58,9 @@ async function api(path, options = {}) {
     ...options,
     headers: { ...options.headers, ...authHeaders() },
   });
+  // Only genuine 401s (token invalid / expired) force logout.
+  // Transient failures (503 service unavailable, 502 bad gateway, 429 rate limit)
+  // are returned to the caller so they can display a retryable message without clearing session state.
   if (res.status === 401) {
     logout('Session expired or invalid token.');
     throw new Error('unauthorized');
@@ -221,16 +224,21 @@ async function loadQueue() {
 }
 
 async function openDocument(signedUrl) {
-  const viewToken = new URL(signedUrl, location.href).searchParams.get('token');
-  const res = await api(`/api/documents/view?token=${encodeURIComponent(viewToken)}`);
-  if (!res.ok) {
-    alert(`Document could not be loaded (HTTP ${res.status})`);
-    return;
+  try {
+    const viewToken = new URL(signedUrl, location.href).searchParams.get('token');
+    const res = await api(`/api/documents/view?token=${encodeURIComponent(viewToken)}`);
+    if (!res.ok) {
+      alert(`Document could not be loaded (HTTP ${res.status})`);
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    if (e.message === 'unauthorized') return;
+    alert(`Failed to open document: ${e.message || 'Network error'}`);
   }
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  window.open(url, '_blank', 'noopener');
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 function openReviewDialog(submission) {
@@ -263,30 +271,42 @@ async function submitReview() {
     return;
   }
 
-  const res = await api('/api/review', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      user_id: dialogUser.user_id,
-      action,
-      reason,
-    }),
-  });
+  try {
+    const res = await api('/api/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: dialogUser.user_id,
+        action,
+        reason,
+      }),
+    });
 
-  if (!res.ok) {
-    let msg = `Review failed (HTTP ${res.status})`;
-    try {
-      const body = await res.json();
-      if (body.error) msg = body.error;
-    } catch { /* keep generic */ }
+    if (!res.ok) {
+      let msg = `Review failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        if (body.message) msg = body.message;
+        else if (body.error) msg = body.error;
+      } catch { /* keep generic */ }
+      const err = document.getElementById('review-error');
+      err.textContent = msg;
+      show(err);
+      return;
+    }
+
+    document.getElementById('review-dialog').close();
+    loadQueue();
+  } catch (e) {
+    if (e.message === 'unauthorized') return;
     const err = document.getElementById('review-error');
-    err.textContent = msg;
-    show(err);
-    return;
+    if (err) {
+      err.textContent = `Review failed: ${e.message || 'Network error'}`;
+      show(err);
+    } else {
+      alert(`Review failed: ${e.message || 'Network error'}`);
+    }
   }
-
-  document.getElementById('review-dialog').close();
-  loadQueue();
 }
 
 // ---------------------------------------------------------------------------
@@ -447,29 +467,41 @@ async function submitSuspend() {
     return;
   }
 
-  const res = await api('/api/accounts/suspend', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      user_id: targetAccount.id,
-      reason,
-    }),
-  });
+  try {
+    const res = await api('/api/accounts/suspend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: targetAccount.id,
+        reason,
+      }),
+    });
 
-  if (!res.ok) {
-    let msg = `Suspension failed (HTTP ${res.status})`;
-    try {
-      const body = await res.json();
-      if (body.error) msg = body.error;
-    } catch { /* keep generic */ }
+    if (!res.ok) {
+      let msg = `Suspension failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        if (body.message) msg = body.message;
+        else if (body.error) msg = body.error;
+      } catch { /* keep generic */ }
+      const err = document.getElementById('suspend-error');
+      err.textContent = msg;
+      show(err);
+      return;
+    }
+
+    document.getElementById('suspend-dialog').close();
+    loadAccounts();
+  } catch (e) {
+    if (e.message === 'unauthorized') return;
     const err = document.getElementById('suspend-error');
-    err.textContent = msg;
-    show(err);
-    return;
+    if (err) {
+      err.textContent = `Suspension failed: ${e.message || 'Network error'}`;
+      show(err);
+    } else {
+      alert(`Suspension failed: ${e.message || 'Network error'}`);
+    }
   }
-
-  document.getElementById('suspend-dialog').close();
-  loadAccounts();
 }
 
 // ---------------------------------------------------------------------------
@@ -490,29 +522,41 @@ async function submitReactivate() {
   if (!targetAccount) return;
   const reason = document.getElementById('reactivate-reason').value.trim();
 
-  const res = await api('/api/accounts/reactivate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      user_id: targetAccount.id,
-      reason,
-    }),
-  });
+  try {
+    const res = await api('/api/accounts/reactivate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: targetAccount.id,
+        reason,
+      }),
+    });
 
-  if (!res.ok) {
-    let msg = `Reactivation failed (HTTP ${res.status})`;
-    try {
-      const body = await res.json();
-      if (body.error) msg = body.error;
-    } catch { /* keep generic */ }
+    if (!res.ok) {
+      let msg = `Reactivation failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        if (body.message) msg = body.message;
+        else if (body.error) msg = body.error;
+      } catch { /* keep generic */ }
+      const err = document.getElementById('reactivate-error');
+      err.textContent = msg;
+      show(err);
+      return;
+    }
+
+    document.getElementById('reactivate-dialog').close();
+    loadAccounts();
+  } catch (e) {
+    if (e.message === 'unauthorized') return;
     const err = document.getElementById('reactivate-error');
-    err.textContent = msg;
-    show(err);
-    return;
+    if (err) {
+      err.textContent = `Reactivation failed: ${e.message || 'Network error'}`;
+      show(err);
+    } else {
+      alert(`Reactivation failed: ${e.message || 'Network error'}`);
+    }
   }
-
-  document.getElementById('reactivate-dialog').close();
-  loadAccounts();
 }
 
 // ---------------------------------------------------------------------------
@@ -668,30 +712,42 @@ async function submitResolveDispute() {
     return;
   }
 
-  const res = await api('/api/reconciliation/resolve', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      job_id: targetDispute.id,
-      decision,
-      reason,
-    }),
-  });
+  try {
+    const res = await api('/api/reconciliation/resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        job_id: targetDispute.id,
+        decision,
+        reason,
+      }),
+    });
 
-  if (!res.ok) {
-    let msg = `Dispute resolution failed (HTTP ${res.status})`;
-    try {
-      const body = await res.json();
-      if (body.error) msg = body.error;
-    } catch { /* keep generic */ }
+    if (!res.ok) {
+      let msg = `Dispute resolution failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        if (body.message) msg = body.message;
+        else if (body.error) msg = body.error;
+      } catch { /* keep generic */ }
+      const err = document.getElementById('resolve-dispute-error');
+      err.textContent = msg;
+      show(err);
+      return;
+    }
+
+    document.getElementById('resolve-dispute-dialog').close();
+    loadReconciliation();
+  } catch (e) {
+    if (e.message === 'unauthorized') return;
     const err = document.getElementById('resolve-dispute-error');
-    err.textContent = msg;
-    show(err);
-    return;
+    if (err) {
+      err.textContent = `Dispute resolution failed: ${e.message || 'Network error'}`;
+      show(err);
+    } else {
+      alert(`Dispute resolution failed: ${e.message || 'Network error'}`);
+    }
   }
-
-  document.getElementById('resolve-dispute-dialog').close();
-  loadReconciliation();
 }
 
 // ---------------------------------------------------------------------------
@@ -826,30 +882,42 @@ async function submitActivateSub() {
   if (!targetSub) return;
   const durationDays = parseInt(document.getElementById('activate-sub-duration').value, 10) || 30;
 
-  const res = await api('/api/subscriptions/activate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      tenant_id: targetSub.tenant_id,
-      subscription_id: targetSub.id,
-      duration_days: durationDays,
-    }),
-  });
+  try {
+    const res = await api('/api/subscriptions/activate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tenant_id: targetSub.tenant_id,
+        subscription_id: targetSub.id,
+        duration_days: durationDays,
+      }),
+    });
 
-  if (!res.ok) {
-    let msg = `Activation failed (HTTP ${res.status})`;
-    try {
-      const body = await res.json();
-      if (body.error) msg = body.error;
-    } catch { /* keep generic */ }
+    if (!res.ok) {
+      let msg = `Activation failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        if (body.message) msg = body.message;
+        else if (body.error) msg = body.error;
+      } catch { /* keep generic */ }
+      const err = document.getElementById('activate-sub-error');
+      err.textContent = msg;
+      show(err);
+      return;
+    }
+
+    document.getElementById('activate-sub-dialog').close();
+    loadSubscriptions();
+  } catch (e) {
+    if (e.message === 'unauthorized') return;
     const err = document.getElementById('activate-sub-error');
-    err.textContent = msg;
-    show(err);
-    return;
+    if (err) {
+      err.textContent = `Activation failed: ${e.message || 'Network error'}`;
+      show(err);
+    } else {
+      alert(`Activation failed: ${e.message || 'Network error'}`);
+    }
   }
-
-  document.getElementById('activate-sub-dialog').close();
-  loadSubscriptions();
 }
 
 function openRevokeSubDialog(sub) {
@@ -870,30 +938,42 @@ async function submitRevokeSub() {
     return;
   }
 
-  const res = await api('/api/subscriptions/revoke', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      tenant_id: targetSub.tenant_id,
-      subscription_id: targetSub.id,
-      reason,
-    }),
-  });
+  try {
+    const res = await api('/api/subscriptions/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tenant_id: targetSub.tenant_id,
+        subscription_id: targetSub.id,
+        reason,
+      }),
+    });
 
-  if (!res.ok) {
-    let msg = `Revocation failed (HTTP ${res.status})`;
-    try {
-      const body = await res.json();
-      if (body.error) msg = body.error;
-    } catch { /* keep generic */ }
+    if (!res.ok) {
+      let msg = `Revocation failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        if (body.message) msg = body.message;
+        else if (body.error) msg = body.error;
+      } catch { /* keep generic */ }
+      const err = document.getElementById('revoke-sub-error');
+      err.textContent = msg;
+      show(err);
+      return;
+    }
+
+    document.getElementById('revoke-sub-dialog').close();
+    loadSubscriptions();
+  } catch (e) {
+    if (e.message === 'unauthorized') return;
     const err = document.getElementById('revoke-sub-error');
-    err.textContent = msg;
-    show(err);
-    return;
+    if (err) {
+      err.textContent = `Revocation failed: ${e.message || 'Network error'}`;
+      show(err);
+    } else {
+      alert(`Revocation failed: ${e.message || 'Network error'}`);
+    }
   }
-
-  document.getElementById('revoke-sub-dialog').close();
-  loadSubscriptions();
 }
 
 // ---------------------------------------------------------------------------
@@ -1077,45 +1157,71 @@ async function submitResolveTicket() {
     return;
   }
 
-  const res = await api('/api/tickets/resolve', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ticket_id: targetTicket.ticket_id,
-      resolution_note: note,
-    }),
-  });
+  const submitBtn = document.getElementById('resolve-ticket-submit');
+  try {
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Resolving...';
+    }
 
-  if (!res.ok) {
-    let msg = `Ticket resolution failed (HTTP ${res.status})`;
-    try {
-      const body = await res.json();
-      if (body.error) msg = body.error;
-    } catch { /* keep generic */ }
+    const res = await api('/api/tickets/resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ticket_id: targetTicket.ticket_id,
+        resolution_note: note,
+      }),
+    });
+
+    if (!res.ok) {
+      let msg = `Ticket resolution failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        if (body.message) msg = body.message;
+        else if (body.error) msg = body.error;
+      } catch { /* keep generic */ }
+      const err = document.getElementById('resolve-ticket-error');
+      if (err) {
+        err.textContent = msg;
+        show(err);
+      }
+      return;
+    }
+
+    document.getElementById('resolve-ticket-dialog').close();
+    if (activeChatTicket && activeChatTicket.ticket_id === targetTicket.ticket_id) {
+      activeChatTicket.status = 'resolved';
+      const resolveBtn = document.getElementById('chat-resolve-btn');
+      if (resolveBtn) {
+        resolveBtn.disabled = true;
+        resolveBtn.textContent = 'Resolved';
+      }
+      const input = document.getElementById('ticket-chat-input');
+      if (input) {
+        input.disabled = true;
+        input.placeholder = 'This ticket has been resolved.';
+      }
+      const sendBtn = document.getElementById('ticket-chat-send-btn');
+      if (sendBtn) sendBtn.disabled = true;
+    }
+    loadTickets();
+    refreshBadgeCounts();
+  } catch (e) {
+    if (e.message === 'unauthorized') return;
     const err = document.getElementById('resolve-ticket-error');
-    err.textContent = msg;
-    show(err);
-    return;
-  }
-
-  document.getElementById('resolve-ticket-dialog').close();
-  if (activeChatTicket && activeChatTicket.ticket_id === targetTicket.ticket_id) {
-    activeChatTicket.status = 'resolved';
-    const resolveBtn = document.getElementById('chat-resolve-btn');
-    if (resolveBtn) {
-      resolveBtn.disabled = true;
-      resolveBtn.textContent = 'Resolved';
+    const msg = `Failed to resolve ticket: ${e.message || 'Network error. Please try again.'}`;
+    if (err) {
+      err.textContent = msg;
+      show(err);
+    } else {
+      alert(msg);
     }
-    const input = document.getElementById('ticket-chat-input');
-    if (input) {
-      input.disabled = true;
-      input.placeholder = 'This ticket has been resolved.';
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Confirm Resolve';
     }
-    const sendBtn = document.getElementById('ticket-chat-send-btn');
-    if (sendBtn) sendBtn.disabled = true;
   }
-  loadTickets();
-  refreshBadgeCounts();
 }
 
 async function initReviewerIdentity() {
