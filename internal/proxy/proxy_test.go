@@ -686,3 +686,126 @@ func TestAcceptTicket_ValidationsAndForwarding(t *testing.T) {
 		}
 	})
 }
+
+func TestPayouts_ForwardsToUserService(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`{"payouts":[{"id":"po-1","amount":100,"status":"requested"}],"total":1,"page":1,"limit":20}`)}
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	p := NewWithServices("secret-internal-token", "https://auth-service", upstream.URL, "https://chat-service", upstream.Client())
+	t.Cleanup(upstream.Close)
+
+	t.Run("missing reviewer token rejected", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/payouts", nil)
+		rec := httptest.NewRecorder()
+		p.Payouts(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401 without reviewer token, got %d", rec.Code)
+		}
+	})
+
+	t.Run("wrong method rejected", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/payouts", nil)
+		req.Header.Set("X-Reviewer-Token", "tok")
+		rec := httptest.NewRecorder()
+		p.Payouts(rec, req)
+
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected 405, got %d", rec.Code)
+		}
+	})
+
+	t.Run("valid get forwarded with query params", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/payouts?status=requested&page=1&limit=20", nil)
+		req.Header.Set("X-Reviewer-Token", "reviewer-tok-payout")
+		rec := httptest.NewRecorder()
+		p.Payouts(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if stub.gotInternal != "secret-internal-token" || stub.gotReviewer != "reviewer-tok-payout" {
+			t.Errorf("tokens not forwarded correctly: internal=%q reviewer=%q", stub.gotInternal, stub.gotReviewer)
+		}
+		if stub.gotPath != "/admin/payouts" {
+			t.Errorf("unexpected upstream path: %q", stub.gotPath)
+		}
+	})
+}
+
+func TestRejectPayout_ValidationsAndForwarding(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		wantSub string
+	}{
+		{"missing payout_id", `{"reason":"invalid account"}`, "payout_id is required"},
+		{"missing reason", `{"payout_id":"po-1","reason":""}`, "reason is required"},
+		{"whitespace reason", `{"payout_id":"po-1","reason":"   "}`, "reason is required"},
+		{"oversized reason", `{"payout_id":"po-1","reason":"` + strings.Repeat("x", 1001) + `"}`, "1000 characters"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &upstreamStub{t: t, statusCode: http.StatusOK}
+			upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+			p := NewWithServices("secret-internal-token", "https://auth-service", upstream.URL, "https://chat-service", upstream.Client())
+			t.Cleanup(upstream.Close)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/payouts/reject", strings.NewReader(tc.body))
+			req.Header.Set("X-Reviewer-Token", "tok")
+			rec := httptest.NewRecorder()
+			p.RejectPayout(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tc.wantSub) {
+				t.Errorf("expected error containing %q, got %s", tc.wantSub, rec.Body.String())
+			}
+			if stub.gotPath != "" {
+				t.Error("invalid reject payload must never reach upstream")
+			}
+		})
+	}
+
+	t.Run("wrong method rejected", func(t *testing.T) {
+		stub := &upstreamStub{t: t, statusCode: http.StatusOK}
+		upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+		p := NewWithServices("secret-internal-token", "https://auth-service", upstream.URL, "https://chat-service", upstream.Client())
+		t.Cleanup(upstream.Close)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/payouts/reject", nil)
+		req.Header.Set("X-Reviewer-Token", "tok")
+		rec := httptest.NewRecorder()
+		p.RejectPayout(rec, req)
+
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected 405, got %d", rec.Code)
+		}
+	})
+
+	t.Run("valid reject forwarded to user-service", func(t *testing.T) {
+		stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+			responseBytes: []byte(`{"message":"payout request rejected","payout_id":"po-100"}`)}
+		upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+		p := NewWithServices("secret-internal-token", "https://auth-service", upstream.URL, "https://chat-service", upstream.Client())
+		t.Cleanup(upstream.Close)
+
+		body := `{"payout_id":"po-100","reason":"Invalid IBAN details provided"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/payouts/reject", strings.NewReader(body))
+		req.Header.Set("X-Reviewer-Token", "tok-reject-payout")
+		rec := httptest.NewRecorder()
+		p.RejectPayout(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if stub.gotBody["payout_id"] != "po-100" || stub.gotBody["reason"] != "Invalid IBAN details provided" {
+			t.Errorf("payload mismatch: %+v", stub.gotBody)
+		}
+		if stub.gotPath != "/admin/payouts/reject" {
+			t.Errorf("unexpected path: %q", stub.gotPath)
+		}
+	})
+}

@@ -434,6 +434,59 @@ func (p *ReviewerProxy) RevokeSubscription(w http.ResponseWriter, r *http.Reques
 	p.forwardToService(w, r, p.userServiceURL, "/admin/subscriptions/revoke")
 }
 
+// Payouts proxies GET /admin/payouts to user-service.
+func (p *ReviewerProxy) Payouts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	upstreamPath := "/admin/payouts"
+	if r.URL.RawQuery != "" {
+		upstreamPath += "?" + r.URL.RawQuery
+	}
+	p.forwardToService(w, r, p.userServiceURL, upstreamPath)
+}
+
+type rejectPayoutRequest struct {
+	PayoutID string `json:"payout_id"`
+	Reason   string `json:"reason"`
+}
+
+// RejectPayout proxies POST /admin/payouts/reject with mandatory reason validation.
+func (p *ReviewerProxy) RejectPayout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"use POST"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req rejectPayoutRequest
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	if err := dec.Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.PayoutID) == "" {
+		http.Error(w, `{"error":"payout_id is required"}`, http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Reason) == "" {
+		http.Error(w, `{"error":"reason is required for rejection"}`, http.StatusBadRequest)
+		return
+	}
+	if len(req.Reason) > 1000 {
+		http.Error(w, `{"error":"reason exceeds maximum length of 1000 characters"}`, http.StatusBadRequest)
+		return
+	}
+
+	payload, err := json.Marshal(req)
+	if err != nil {
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(payload))
+	p.forwardToService(w, r, p.userServiceURL, "/admin/payouts/reject")
+}
+
 // Tickets proxies GET /admin/tickets to chat-service (ADR-0023).
 func (p *ReviewerProxy) Tickets(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

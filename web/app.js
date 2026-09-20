@@ -49,6 +49,15 @@ const ticketsState = {
   total: 0,
 };
 
+let activeRejectPayout = null;
+
+const payoutsState = {
+  page: 1,
+  limit: 15,
+  status: '',
+  total: 0,
+};
+
 function authHeaders() {
   return { 'X-Reviewer-Token': sessionStorage.getItem(tokenKey) || '' };
 }
@@ -93,24 +102,28 @@ function switchTab(tab) {
   const reconBtn = document.getElementById('tab-reconciliation-btn');
   const subsBtn = document.getElementById('tab-subscriptions-btn');
   const ticketsBtn = document.getElementById('tab-tickets-btn');
+  const payoutsBtn = document.getElementById('tab-payouts-btn');
 
   const queueSection = document.getElementById('queue-section');
   const accountsSection = document.getElementById('accounts-section');
   const reconSection = document.getElementById('reconciliation-section');
   const subsSection = document.getElementById('subscriptions-section');
   const ticketsSection = document.getElementById('tickets-section');
+  const payoutsSection = document.getElementById('payouts-section');
 
   queueBtn.classList.remove('active');
   accountsBtn.classList.remove('active');
   reconBtn.classList.remove('active');
   if (subsBtn) subsBtn.classList.remove('active');
   if (ticketsBtn) ticketsBtn.classList.remove('active');
+  if (payoutsBtn) payoutsBtn.classList.remove('active');
 
   hide(queueSection);
   hide(accountsSection);
   hide(reconSection);
   hide(subsSection);
   hide(ticketsSection);
+  hide(payoutsSection);
 
   if (tab === 'queue') {
     queueBtn.classList.add('active');
@@ -132,6 +145,10 @@ function switchTab(tab) {
     if (ticketsBtn) ticketsBtn.classList.add('active');
     show(ticketsSection);
     loadTickets();
+  } else if (tab === 'payouts') {
+    if (payoutsBtn) payoutsBtn.classList.add('active');
+    show(payoutsSection);
+    loadPayouts();
   }
 }
 
@@ -1224,6 +1241,173 @@ async function submitResolveTicket() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Payout Requests Management
+// ---------------------------------------------------------------------------
+
+async function loadPayouts() {
+  const params = new URLSearchParams();
+  if (payoutsState.status) params.set('status', payoutsState.status);
+  params.set('page', payoutsState.page);
+  params.set('limit', payoutsState.limit);
+
+  let data;
+  try {
+    const res = await api(`/api/payouts?${params.toString()}`);
+    if (!res.ok) throw new Error(`payouts request failed (${res.status})`);
+    data = await res.json();
+  } catch (e) {
+    if (e.message === 'unauthorized') return;
+    const err = document.getElementById('payouts-error');
+    err.textContent = `Failed to load payouts: ${e.message}`;
+    show(err);
+    return;
+  }
+
+  const payouts = data.payouts || [];
+  payoutsState.total = data.total || 0;
+
+  const countBadge = document.getElementById('payouts-badge');
+  if (countBadge) countBadge.textContent = `${data.total || payouts.length}`;
+
+  const tbody = document.querySelector('#payouts-table tbody');
+  tbody.textContent = '';
+
+  if (payouts.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 7;
+    td.className = 'empty-state';
+    td.textContent = 'No payout requests found.';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    for (const p of payouts) {
+      const tr = document.createElement('tr');
+
+      // Payout ID
+      const idTd = document.createElement('td');
+      idTd.innerHTML = `<code class="id-tag">${p.id || ''}</code>`;
+      tr.appendChild(idTd);
+
+      // Tenant ID
+      const tenantTd = document.createElement('td');
+      tenantTd.innerHTML = `<strong>${p.tenant_id}</strong>`;
+      tr.appendChild(tenantTd);
+
+      // Amount
+      const amountTd = document.createElement('td');
+      amountTd.innerHTML = `<strong>$${Number(p.amount || 0).toFixed(2)}</strong>`;
+      tr.appendChild(amountTd);
+
+      // Method
+      const methodTd = document.createElement('td');
+      methodTd.textContent = p.payout_method || '—';
+      tr.appendChild(methodTd);
+
+      // Status
+      const statusTd = document.createElement('td');
+      let badgeClass = 'badge-pending';
+      if (p.status === 'processed') badgeClass = 'badge-paid';
+      else if (p.status === 'rejected') badgeClass = 'badge-cancelled';
+      statusTd.innerHTML = `<span class="badge ${badgeClass}">${(p.status || 'REQUESTED').toUpperCase()}</span>`;
+      tr.appendChild(statusTd);
+
+      // Requested At
+      const dateTd = document.createElement('td');
+      dateTd.textContent = p.created_at ? new Date(p.created_at).toLocaleString() : '—';
+      tr.appendChild(dateTd);
+
+      // Action / Notes
+      const actionTd = document.createElement('td');
+      if (p.status === 'requested') {
+        const rejBtn = document.createElement('button');
+        rejBtn.type = 'button';
+        rejBtn.className = 'btn-sm danger';
+        rejBtn.textContent = 'Reject…';
+        rejBtn.addEventListener('click', () => openRejectPayoutDialog(p));
+        actionTd.appendChild(rejBtn);
+      } else if (p.status === 'rejected' && p.rejection_reason) {
+        actionTd.className = 'small';
+        actionTd.innerHTML = `<em>Reason: ${p.rejection_reason}</em>`;
+      } else {
+        actionTd.textContent = '—';
+      }
+      tr.appendChild(actionTd);
+
+      tbody.appendChild(tr);
+    }
+  }
+
+  // Pagination UI
+  const pageInfo = document.getElementById('payouts-page-info');
+  const countInfo = document.getElementById('payouts-count');
+  const prevBtn = document.getElementById('payouts-prev-btn');
+  const nextBtn = document.getElementById('payouts-next-btn');
+
+  const totalPages = Math.max(1, Math.ceil(payoutsState.total / payoutsState.limit));
+  if (pageInfo) pageInfo.textContent = `Page ${payoutsState.page} of ${totalPages}`;
+  if (countInfo) countInfo.textContent = `Showing ${payouts.length} of ${payoutsState.total} requests`;
+  if (prevBtn) prevBtn.disabled = payoutsState.page <= 1;
+  if (nextBtn) nextBtn.disabled = payoutsState.page >= totalPages;
+
+  hide(document.getElementById('payouts-error'));
+}
+
+function openRejectPayoutDialog(payout) {
+  activeRejectPayout = payout;
+  document.getElementById('reject-payout-target').textContent =
+    `Payout ${payout.id} • Tenant ${payout.tenant_id} • $${Number(payout.amount || 0).toFixed(2)}`;
+  document.getElementById('reject-payout-reason').value = '';
+  hide(document.getElementById('reject-payout-error'));
+  document.getElementById('reject-payout-modal').showModal();
+}
+
+async function submitRejectPayout() {
+  if (!activeRejectPayout) return;
+  const reason = document.getElementById('reject-payout-reason').value.trim();
+  const errEl = document.getElementById('reject-payout-error');
+
+  if (!reason) {
+    errEl.textContent = 'Reason is required for rejection.';
+    show(errEl);
+    return;
+  }
+  if (reason.length > 1000) {
+    errEl.textContent = 'Reason exceeds maximum length of 1000 characters.';
+    show(errEl);
+    return;
+  }
+
+  const submitBtn = document.getElementById('reject-payout-submit');
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Rejecting…';
+
+  try {
+    const res = await api('/api/payouts/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        payout_id: activeRejectPayout.id,
+        reason: reason,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    document.getElementById('reject-payout-modal').close();
+    loadPayouts();
+    refreshBadgeCounts();
+  } catch (err) {
+    errEl.textContent = `Failed to reject payout: ${err.message}`;
+    show(errEl);
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Confirm Rejection';
+  }
+}
+
 async function initReviewerIdentity() {
   try {
     const res = await api('/api/me');
@@ -1375,11 +1559,12 @@ function appendChatMessage(msg) {
 async function refreshBadgeCounts() {
   if (!sessionStorage.getItem(tokenKey)) return;
   try {
-    const [queueRes, reconRes, subsRes, ticketsRes] = await Promise.allSettled([
+    const [queueRes, reconRes, subsRes, ticketsRes, payoutsRes] = await Promise.allSettled([
       api('/api/queue').then(r => r.ok ? r.json() : []),
       api('/api/reconciliation/queue?page=1&limit=1').then(r => r.ok ? r.json() : {}),
       api('/api/subscriptions?page=1&limit=1').then(r => r.ok ? r.json() : {}),
       api('/api/tickets?page=1&limit=1').then(r => r.ok ? r.json() : {}),
+      api('/api/payouts?status=requested&page=1&limit=1').then(r => r.ok ? r.json() : {}),
     ]);
 
     if (queueRes.status === 'fulfilled' && Array.isArray(queueRes.value)) {
@@ -1397,6 +1582,10 @@ async function refreshBadgeCounts() {
     if (ticketsRes.status === 'fulfilled' && ticketsRes.value) {
       const b = document.getElementById('tickets-badge');
       if (b) b.textContent = `${ticketsRes.value.total ?? (ticketsRes.value.tickets?.length || 0)}`;
+    }
+    if (payoutsRes.status === 'fulfilled' && payoutsRes.value) {
+      const b = document.getElementById('payouts-badge');
+      if (b) b.textContent = `${payoutsRes.value.total ?? (payoutsRes.value.payouts?.length || 0)}`;
     }
   } catch {
     // Non-critical background count sync
@@ -1437,12 +1626,14 @@ document.getElementById('tab-accounts-btn').addEventListener('click', () => swit
 document.getElementById('tab-reconciliation-btn').addEventListener('click', () => switchTab('reconciliation'));
 document.getElementById('tab-subscriptions-btn').addEventListener('click', () => switchTab('subscriptions'));
 document.getElementById('tab-tickets-btn').addEventListener('click', () => switchTab('tickets'));
+document.getElementById('tab-payouts-btn').addEventListener('click', () => switchTab('payouts'));
 
 document.getElementById('refresh-queue-btn').addEventListener('click', loadQueue);
 document.getElementById('refresh-accounts-btn').addEventListener('click', loadAccounts);
 document.getElementById('refresh-reconciliation-btn').addEventListener('click', loadReconciliation);
 document.getElementById('refresh-subscriptions-btn').addEventListener('click', loadSubscriptions);
 document.getElementById('refresh-tickets-btn').addEventListener('click', loadTickets);
+document.getElementById('refresh-payouts-btn').addEventListener('click', loadPayouts);
 
 document.getElementById('review-cancel').addEventListener('click', () => document.getElementById('review-dialog').close());
 document.getElementById('review-submit').addEventListener('click', submitReview);
@@ -1467,6 +1658,9 @@ document.getElementById('revoke-sub-submit').addEventListener('click', submitRev
 
 document.getElementById('resolve-ticket-cancel').addEventListener('click', () => document.getElementById('resolve-ticket-dialog').close());
 document.getElementById('resolve-ticket-submit').addEventListener('click', submitResolveTicket);
+
+document.getElementById('reject-payout-cancel').addEventListener('click', () => document.getElementById('reject-payout-modal').close());
+document.getElementById('reject-payout-submit').addEventListener('click', submitRejectPayout);
 
 // Accounts Toolbar and Search
 document.getElementById('accounts-filter-form').addEventListener('submit', (e) => {
@@ -1583,6 +1777,36 @@ document.getElementById('tickets-next-btn').addEventListener('click', () => {
   if (ticketsState.page < totalPages) {
     ticketsState.page++;
     loadTickets();
+  }
+});
+
+// Payout Requests Toolbar & Pagination
+document.getElementById('payouts-filter-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  payoutsState.status = document.getElementById('payouts-status-filter').value;
+  payoutsState.page = 1;
+  loadPayouts();
+});
+
+document.getElementById('payouts-reset-btn').addEventListener('click', () => {
+  document.getElementById('payouts-status-filter').value = '';
+  payoutsState.status = '';
+  payoutsState.page = 1;
+  loadPayouts();
+});
+
+document.getElementById('payouts-prev-btn').addEventListener('click', () => {
+  if (payoutsState.page > 1) {
+    payoutsState.page--;
+    loadPayouts();
+  }
+});
+
+document.getElementById('payouts-next-btn').addEventListener('click', () => {
+  const totalPages = Math.ceil(payoutsState.total / payoutsState.limit);
+  if (payoutsState.page < totalPages) {
+    payoutsState.page++;
+    loadPayouts();
   }
 });
 

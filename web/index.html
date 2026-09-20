@@ -48,6 +48,9 @@
       <button id="tab-tickets-btn" class="tab-btn" type="button">
         Support Tickets <span id="tickets-badge" class="pill">0</span>
       </button>
+      <button id="tab-payouts-btn" class="tab-btn" type="button">
+        Payout Requests <span id="payouts-badge" class="pill">0</span>
+      </button>
     </nav>
 
     <!-- TAB 1: Pending Queue -->
@@ -264,6 +267,51 @@
       </div>
     </section>
 
+    <!-- TAB 6: Payout Requests -->
+    <section id="payouts-section" hidden>
+      <header>
+        <h2>Tenant Payout Requests</h2>
+        <button id="refresh-payouts-btn" type="button">Refresh Payouts</button>
+      </header>
+
+      <form id="payouts-filter-form" class="toolbar">
+        <select id="payouts-status-filter">
+          <option value="">All Statuses</option>
+          <option value="requested">Requested</option>
+          <option value="processed">Processed</option>
+          <option value="rejected">Rejected</option>
+        </select>
+        <button type="submit">Filter</button>
+        <button type="button" id="payouts-reset-btn" class="secondary">Reset</button>
+      </form>
+
+      <p id="payouts-error" class="error banner" hidden></p>
+
+      <table id="payouts-table">
+        <thead>
+          <tr>
+            <th>Payout ID</th>
+            <th>Tenant ID</th>
+            <th>Amount</th>
+            <th>Method</th>
+            <th>Status</th>
+            <th>Requested At</th>
+            <th>Action / Notes</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="pagination-bar">
+        <span id="payouts-count" class="muted"></span>
+        <div class="pagination-controls">
+          <button id="payouts-prev-btn" type="button" class="secondary" disabled>&larr; Prev</button>
+          <span id="payouts-page-info">Page 1</span>
+          <button id="payouts-next-btn" type="button" class="secondary" disabled>Next &rarr;</button>
+        </div>
+      </div>
+    </section>
+
     <!-- Dialog: Review KYC Submission -->
     <dialog id="review-dialog">
       <h2>Review submission</h2>
@@ -376,6 +424,21 @@
       <menu>
         <button id="resolve-ticket-cancel" type="button" class="secondary">Cancel</button>
         <button id="resolve-ticket-submit" type="button">Confirm Resolve</button>
+      </menu>
+    </dialog>
+
+    <!-- Dialog: Reject Payout Request -->
+    <dialog id="reject-payout-modal">
+      <h2>Reject Payout Request</h2>
+      <p id="reject-payout-target" class="muted"></p>
+      <p class="warning-callout">Rejecting will restore the tenant's wallet balance and record a compensation ledger entry.</p>
+      <label for="reject-payout-reason">Reason for rejection (required) <span class="required">*</span></label>
+      <textarea id="reject-payout-reason" maxlength="1000" rows="3" required
+        placeholder="Explain why this payout request is being rejected (e.g. invalid banking details)"></textarea>
+      <p id="reject-payout-error" class="error" hidden></p>
+      <menu>
+        <button id="reject-payout-cancel" type="button" class="secondary">Cancel</button>
+        <button id="reject-payout-submit" type="button" class="danger">Confirm Rejection</button>
       </menu>
     </dialog>
   </section>
