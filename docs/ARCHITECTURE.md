@@ -6,7 +6,7 @@ This document explains the end-to-end operational architecture of the standalone
 
 ## 1. Multi-Service Two-Token Proxy Model
 
-All administrative actions across the 5 console tabs follow a uniform two-token security contract:
+All administrative actions across the 6 console tabs follow a uniform two-token security contract:
 
 ```
 Browser (sessionStorage)
@@ -60,6 +60,12 @@ Internal Microservice (auth-service / user-service / chat-service)
 2. **Local Proxy Validation**: Enforces mandatory resolution note (1–1000 characters).
 3. **Upstream Action**: `chat-service` executes atomic CAS transition on `complaint_tickets` (`status: resolved`, `resolved_by`, `resolution_note`), atomically frees assigned support agent (`status: available`), and logs security event `ADMIN_TICKET_RESOLVED`.
 
+### 2.6 Tab 6: Payout Requests (Commit f5b7b6a)
+1. **Console Action**: Reviewer lists payout requests (`GET /api/payouts` with optional `status`, `limit`, `offset`) or rejects a payout request (`POST /api/payouts/reject`, `payout_id`, `reason`).
+2. **Local Proxy Validation**: Enforces mandatory reason (1–1000 characters) on rejections before forwarding.
+3. **Upstream Action**: `user-service` executes `POST /admin/payouts/reject`, performing atomic Compare-and-Swap (CAS) state transition on the payout request from `pending` to `rejected`, restores the user's withdrawable wallet balance, records an audit log, and ships security event `ADMIN_PAYOUT_REJECTED`.
+4. **Notification**: `user-service` dispatches asynchronous notification to the courier or owner via `notification-service` `POST /notifications/send`.
+
 ---
 
 ## 3. Boundary Rules & Invariants
@@ -67,5 +73,5 @@ Internal Microservice (auth-service / user-service / chat-service)
 1. **No Admin Capabilities in Consumer Binaries**: All administrative review, suspension, dispute override, tier activation, and ticket resolution surfaces live exclusively in this repository.
 2. **Internal Network Placement**: This console must remain deployed inside the private network (`saas-net`) with access to `INTERNAL_SERVICE_TOKEN`. It is never exposed directly via public gateway route rewrites.
 3. **No Self-Service Admin Provisioning**: Reviewer credentials are created strictly via `cmd/onboard-reviewer` CLI; no public registration or self-service signup endpoints exist.
-4. **Uniform Permission Model**: A single authenticated reviewer level governs the console; all reviewers have uniform access across all 5 modules.
+4. **Uniform Permission Model**: A single authenticated reviewer level governs the console; all reviewers have uniform access across all 6 modules.
 

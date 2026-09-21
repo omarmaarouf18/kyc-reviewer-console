@@ -8,9 +8,9 @@ convention).
 
 Standalone internal web console for administrative operations on the Quick
 Delivery platform (KYB/KYE document review, accounts directory & suspensions,
-disputes & reconciliation, subscriptions, and support tickets). Implements the
+disputes & reconciliation, subscriptions, support tickets, and payout requests). Implements the
 Support Agent Console deferred by saas-core ADR-0013, scoped per ADR-0021,
-ADR-0022, and ADR-0023 (Accepted, scope closed at 5 tabs).
+ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
 
 - **Stack**: Go 1.26 (stdlib-only server) + vanilla HTML/JS/CSS UI.
 - **Deployment**: inside the internal network (same compose network as the
@@ -24,19 +24,28 @@ ADR-0022, and ADR-0023 (Accepted, scope closed at 5 tabs).
 
 - `internal/config` — env config (`INTERNAL_SERVICE_TOKEN`, `AUTH_SERVICE_URL`,
   `USER_SERVICE_URL`, `CHAT_SERVICE_URL`, `PORT`) with empty-secret fail-fast guard.
-- `internal/proxy` — proxy handlers for all 5 operational modules:
+- `internal/proxy` — proxy handlers for all 6 operational modules:
   1. KYC Queue & Review (`/api/queue`, `/api/review`, `/api/documents/view`)
   2. Accounts Directory & Suspensions (`/api/accounts`, `/api/accounts/suspend`, `/api/accounts/reactivate`)
   3. Disputes & Escrow Reconciliation (`/api/reconciliation/queue`, `/api/reconciliation/resolve`)
   4. Subscriptions Management (`/api/subscriptions`, `/api/subscriptions/activate`, `/api/subscriptions/revoke`)
-  5. Support Tickets (`/api/tickets`, `/api/tickets/resolve`)
+  5. Support Tickets (`/api/tickets`, `/api/tickets/resolve`, `/api/tickets/accept`, `/api/tickets/history`, `/api/chat/ws`)
+  6. Payout Requests (`/api/payouts`, `/api/payouts/reject`): proxying to `user-service` (`/admin/payouts`, `/admin/payouts/reject`), with mandatory rejection reason (1–1000 chars) and wallet balance restoration.
   All destructive and override operations enforce local input validation (mandatory reasons, 1–1000 characters) before forwarding to upstream services.
 - `cmd/server` — HTTP server with timeouts, CR/LF-sanitized logging, static UI serving, and route registration for all `/api/*` endpoints.
-- `web/` — 5-tab vanilla UI (`web/index.html`, `web/app.js`, `web/style.css`) with tab-scoped session auth, search toolbars, status filters, pagination controls, dynamic badge counters, and action dialog modals.
+- `web/` — 6-tab vanilla UI (`web/index.html`, `web/app.js`, `web/style.css`) with tab-scoped session auth, search toolbars, status filters, pagination controls, dynamic badge counters, and action dialog modals.
 - CI: `.github/workflows/ci.yml` (gofmt, build, vet, test, gosec);
   `.github/workflows/contract-sync.yml` responding to saas-core's `reviewer-api-contract` repository_dispatch.
 
 ## Recent Changes
+
+### Payout Requests & Rejection Flow (`f5b7b6a`)
+
+- **Feature Summary**: Added Tab 6 for reviewing pending courier/owner payout requests (`/api/payouts`, `/admin/payouts`) and rejecting requests with a mandatory reason (1–1000 characters) via `POST /api/payouts/reject`.
+- **Backend Proxying**: Console proxies calls to `user-service` (`GET /admin/payouts` and `POST /admin/payouts/reject`), attaching `X-Internal-Token` and forwarding reviewer credentials. Rejections execute an atomic Compare-and-Swap (CAS) state transition from `pending` to `rejected`, logging audit events and automatically restoring the user's withdrawable wallet balance.
+- **Verification Evidence**:
+  - Full unit test coverage in `internal/proxy/proxy_test.go` (`TestPayouts_ForwardedToUserService`, `TestRejectPayout_ForwardedToUserService`, `TestRejectPayout_ValidationErrors`).
+  - Web UI integration verified with 6-tab navigation, modal rejection dialog, and dynamic badge counts.
 
 ### Ticket Resolve & Dialog Unhandled Rejection Prevention and Transient Error Handling
 

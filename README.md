@@ -1,6 +1,6 @@
 # Reviewer & Operations Console
 
-Standalone internal web console for administrative operations on the Quick Delivery platform: KYB/KYE document review, accounts directory & suspensions, escrow dispute reconciliation, subscription management, and support ticket resolution. Implements the deferred Support Agent Console from saas-core [ADR-0013], scoped per saas-core [ADR-0021], [ADR-0022], and [ADR-0023].
+Standalone internal web console for administrative operations on the Quick Delivery platform: KYB/KYE document review, accounts directory & suspensions, escrow dispute reconciliation, subscription management, support ticket resolution, and payout requests. Implements the deferred Support Agent Console from saas-core [ADR-0013], scoped per saas-core [ADR-0021], [ADR-0022], and [ADR-0023].
 
 [ADR-0013]: https://github.com/omarmaarouf18/saas-core/blob/main/docs/adr/0013-support-agent-console-as-separate-client-application.md
 [ADR-0021]: https://github.com/omarmaarouf18/saas-core/blob/main/docs/adr/0021-kyc-kyb-kye-reviewer-console.md
@@ -17,9 +17,9 @@ No external consumer application can reach administrative endpoints directly —
 
 - **Two-Token Contract**: Reviewers authenticate with their `X-Reviewer-Token` (onboarded server-side via saas-core's `onboard-reviewer` CLI; hashed at rest in `auth_db.reviewers`). The internal service token never reaches the browser.
 - **No Self-Service Admin Accounts**: Reviewer accounts are created exclusively via manual server-side CLI operations (`cmd/onboard-reviewer`). There is no public registration or self-service signup.
-- **Single Permission Level**: All authenticated reviewers have uniform access across all 5 console tabs (no complex nested RBAC or sub-role splits).
+- **Single Permission Level**: All authenticated reviewers have uniform access across all 6 console tabs (no complex nested RBAC or sub-role splits).
 - **Tab-Scoped Session**: The reviewer token is held in browser `sessionStorage` (closing the tab signs out).
-- **Mandatory Reasons**: All destructive and override mutations (KYC rejections, account suspensions, dispute overrides, subscription revocations, ticket resolutions) strictly enforce mandatory reasons (1–1000 characters) both in the UI and server-side.
+- **Mandatory Reasons**: All destructive and override mutations (KYC rejections, account suspensions, dispute overrides, subscription revocations, ticket resolutions, payout rejections) strictly enforce mandatory reasons (1–1000 characters) both in the UI and server-side.
 
 ## Setup
 
@@ -55,7 +55,7 @@ docker run --rm -p 8090:8090 \
 
 Deploy the container on the same compose network (`saas-net`) so downstream services resolve internally.
 
-## Features (5 Core Modules — Scope Closed per ADR-0023)
+## Features (6 Core Modules — Expanded per commit f5b7b6a)
 
 1. **Pending Submissions (KYC/KYB/KYE)** (`/api/queue`, `/api/review`, `/api/documents/view`):
    - Review pending identity documents for business owners (KYB) and couriers (KYE).
@@ -77,6 +77,10 @@ Deploy the container on the same compose network (`saas-net`) so downstream serv
    - Universal support ticket inbox across all tenants and customers.
    - Status filtering (`pending`, `assigned`, `resolved`) and search.
    - Resolve tickets with mandatory resolution note (1–1000 chars), releasing assigned agents.
+6. **Payout Requests** (`/api/payouts`, `/api/payouts/reject`):
+   - Review pending courier and business owner payout requests.
+   - Status filtering (`pending`, `completed`, `rejected`) and pagination.
+   - Payout rejection with mandatory reason (1–1000 chars), proxying to `user-service` (`POST /admin/payouts/reject`) to perform atomic Compare-and-Swap (CAS) state transition from `pending` to `rejected` and automatically restore the user's withdrawable wallet balance (authorized via commit `f5b7b6a`).
 
 ## CI/CD
 
