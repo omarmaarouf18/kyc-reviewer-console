@@ -117,6 +117,7 @@ func (p *ReviewerProxy) forwardMultipartToService(w http.ResponseWriter, r *http
 	// #nosec G704 //nolint:gosec -- scheme and host come exclusively from internal config
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, baseURL+path, io.LimitReader(r.Body, 10<<20))
 	if err != nil {
+		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized via sanitizeLog()
 		log.Printf("[CONSOLE] failed to build upstream multipart request for %s: %v", sanitizeLog(path), sanitizeLog(err.Error()))
 		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 		return
@@ -130,6 +131,7 @@ func (p *ReviewerProxy) forwardMultipartToService(w http.ResponseWriter, r *http
 	// #nosec G704 //nolint:gosec -- config-controlled host
 	resp, err := p.client.Do(req)
 	if err != nil {
+		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized via sanitizeLog()
 		log.Printf("[CONSOLE] upstream multipart call to %s failed: %v", sanitizeLog(path), sanitizeLog(err.Error()))
 		http.Error(w, `{"error":"upstream unavailable"}`, http.StatusBadGateway)
 		return
@@ -141,6 +143,7 @@ func (p *ReviewerProxy) forwardMultipartToService(w http.ResponseWriter, r *http
 	}
 	w.WriteHeader(resp.StatusCode)
 	if _, err := io.Copy(w, resp.Body); err != nil {
+		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized via sanitizeLog()
 		log.Printf("[CONSOLE] failed to relay upstream multipart response for %s: %v", sanitizeLog(path), sanitizeLog(err.Error()))
 	}
 }
