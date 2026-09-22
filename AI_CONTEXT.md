@@ -39,6 +39,16 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
 
 ## Recent Changes
 
+### KYC User Documents Admin Access & Support Ticket File Attachments
+
+- **Feature Summary**:
+  - **Part A (KYC Document Admin Access)**: Added proxy route `GET /api/documents/user?user_id=...&reason=...` relaying to `auth-service` `GET /auth/reviewer/user-documents`. Enforces reviewer authentication, mandatory audit reason (1–1000 characters), and surfaces out-of-band KYC/KYE identity documents for any user directly in the Accounts Directory and Ticket Chat header with refreshable signed URLs.
+  - **Part B (Support Ticket Chat File Upload)**: Added proxy routes `POST /api/tickets/attachment` (relaying multipart/form-data up to 10MB to `chat-service` `POST /chat/tickets/{id}/attachment`) and `GET /api/chat/attachments/view?token=...` (relaying decrypted attachment streaming). Updated Web UI (`web/index.html`, `web/app.js`, `web/style.css`) with file attachment input, attachment badge/preview, clickable image thumbnails, and PDF document cards.
+- **Verification Evidence**:
+  - Unit tests in `internal/proxy/proxy_test.go`: `TestUserDocuments_ValidationsAndForwarding`, `TestTicketAttachment_ValidationsAndForwarding`, `TestAttachmentView_ValidationsAndForwarding`.
+  - Node.js tests in `web/app_test.js`: formatBytes formatting, retrieveUserDocs mandatory reason validation, and sendTicketAttachment multipart FormData with reviewer token.
+  - All tests passing 100% (`go test -v ./...` and `node --test web/app_test.js`).
+
 ### Payout Requests & Rejection Flow (`f5b7b6a`)
 
 - **Feature Summary**: Added Tab 6 for reviewing pending courier/owner payout requests (`/api/payouts`, `/admin/payouts`) and rejecting requests with a mandatory reason (1–1000 characters) via `POST /api/payouts/reject`.

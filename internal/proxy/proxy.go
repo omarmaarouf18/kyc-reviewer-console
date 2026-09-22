@@ -106,6 +106,45 @@ func (p *ReviewerProxy) forwardToService(w http.ResponseWriter, r *http.Request,
 	}
 }
 
+// forwardMultipartToService relays multipart requests up to 10MB to an upstream service.
+func (p *ReviewerProxy) forwardMultipartToService(w http.ResponseWriter, r *http.Request, baseURL, path string) {
+	reviewerToken := r.Header.Get(reviewerTokenHeader)
+	if reviewerToken == "" {
+		http.Error(w, `{"error":"reviewer token required"}`, http.StatusUnauthorized)
+		return
+	}
+
+	// #nosec G704 //nolint:gosec -- scheme and host come exclusively from internal config
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, baseURL+path, io.LimitReader(r.Body, 10<<20))
+	if err != nil {
+		log.Printf("[CONSOLE] failed to build upstream multipart request for %s: %v", sanitizeLog(path), sanitizeLog(err.Error()))
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	if ct := r.Header.Get("Content-Type"); ct != "" {
+		req.Header.Set("Content-Type", ct)
+	}
+	req.Header.Set("X-Internal-Token", p.internalServiceToken)
+	req.Header.Set(reviewerTokenHeader, reviewerToken)
+
+	// #nosec G704 //nolint:gosec -- config-controlled host
+	resp, err := p.client.Do(req)
+	if err != nil {
+		log.Printf("[CONSOLE] upstream multipart call to %s failed: %v", sanitizeLog(path), sanitizeLog(err.Error()))
+		http.Error(w, `{"error":"upstream unavailable"}`, http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	w.WriteHeader(resp.StatusCode)
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		log.Printf("[CONSOLE] failed to relay upstream multipart response for %s: %v", sanitizeLog(path), sanitizeLog(err.Error()))
+	}
+}
+
 // sanitizeLog strips CR/LF so request-derived strings cannot forge log lines
 // (G706 log-injection discipline, mirroring saas-core handlers).
 func sanitizeLog(s string) string {
@@ -198,6 +237,42 @@ func (p *ReviewerProxy) DocumentView(w http.ResponseWriter, r *http.Request) {
 	// Escape the request-derived token so it cannot alter the upstream URL
 	// structure (SSF/SSRF defense for the G704-tainted transport above).
 	p.forward(w, r, "/auth/documents/view?token="+url.QueryEscape(viewToken))
+}
+
+// UserDocuments proxies GET /auth/reviewer/user-documents to auth-service.
+// Mandatory audit reason (1–1000 chars) is required.
+func (p *ReviewerProxy) UserDocuments(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	userID := r.URL.Query().Get("user_id")
+	email := r.URL.Query().Get("email")
+	reason := strings.TrimSpace(r.URL.Query().Get("reason"))
+
+	if userID == "" && email == "" {
+		http.Error(w, `{"error":"user_id or email is required"}`, http.StatusBadRequest)
+		return
+	}
+	if reason == "" {
+		http.Error(w, `{"error":"reason is mandatory"}`, http.StatusBadRequest)
+		return
+	}
+	if len(reason) > 1000 {
+		http.Error(w, `{"error":"reason cannot exceed 1000 characters"}`, http.StatusBadRequest)
+		return
+	}
+
+	q := url.Values{}
+	if userID != "" {
+		q.Set("user_id", userID)
+	}
+	if email != "" {
+		q.Set("email", email)
+	}
+	q.Set("reason", reason)
+
+	p.forward(w, r, "/auth/reviewer/user-documents?"+q.Encode())
 }
 
 // Accounts proxies GET /auth/accounts forwarding query parameters (search, role, status, page, limit).
@@ -592,6 +667,46 @@ func (p *ReviewerProxy) TicketsHistory(w http.ResponseWriter, r *http.Request) {
 		upstreamPath += "?" + r.URL.RawQuery
 	}
 	p.forwardToService(w, r, p.chatServiceURL, upstreamPath)
+}
+
+// TicketAttachment proxies POST /chat/tickets/{id}/attachment to chat-service.
+func (p *ReviewerProxy) TicketAttachment(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"use POST"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	ticketID := r.URL.Query().Get("ticket_id")
+	if ticketID == "" {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		for i, part := range parts {
+			if part == "tickets" && i+1 < len(parts) {
+				candidate := parts[i+1]
+				if candidate != "attachment" {
+					ticketID = candidate
+					break
+				}
+			}
+		}
+	}
+	if ticketID == "" {
+		http.Error(w, `{"error":"ticket_id is required"}`, http.StatusBadRequest)
+		return
+	}
+	p.forwardMultipartToService(w, r, p.chatServiceURL, "/chat/tickets/"+url.PathEscape(ticketID)+"/attachment")
+}
+
+// AttachmentView proxies GET /chat/attachments/view?token=... to chat-service.
+func (p *ReviewerProxy) AttachmentView(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	token := r.URL.Query().Get("token")
+	if token == "" || strings.ContainsAny(token, "&/#?") {
+		http.Error(w, `{"error":"token is required"}`, http.StatusBadRequest)
+		return
+	}
+	p.forwardToService(w, r, p.chatServiceURL, "/chat/attachments/view?token="+url.QueryEscape(token))
 }
 
 // ChatWebSocket reverse-proxies WebSocket connections to chat-service.

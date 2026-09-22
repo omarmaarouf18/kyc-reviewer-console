@@ -423,6 +423,14 @@ async function loadAccounts() {
 
       // Actions
       const actionTd = document.createElement('td');
+      const kycDocsBtn = document.createElement('button');
+      kycDocsBtn.type = 'button';
+      kycDocsBtn.className = 'btn-sm secondary';
+      kycDocsBtn.textContent = 'KYC Docs';
+      kycDocsBtn.style.marginRight = '0.35rem';
+      kycDocsBtn.addEventListener('click', () => openUserDocsDialog(acc));
+      actionTd.appendChild(kycDocsBtn);
+
       if (isSuspended) {
         const reactivateBtn = document.createElement('button');
         reactivateBtn.type = 'button';
@@ -1444,6 +1452,17 @@ async function openTicketChat(ticket) {
     resolveBtn.onclick = () => openResolveTicketDialog(ticket);
   }
 
+  const kycDocsBtn = document.getElementById('chat-kyc-docs-btn');
+  if (kycDocsBtn) {
+    kycDocsBtn.onclick = () => openUserDocsDialog({ id: ticket.customer_id, username: ticket.customer_id });
+  }
+
+  // Reset file attachment input and preview
+  const fileInput = document.getElementById('ticket-chat-file-input');
+  if (fileInput) fileInput.value = '';
+  const filePreview = document.getElementById('ticket-chat-file-preview');
+  if (filePreview) hide(filePreview);
+
   const chatInput = document.getElementById('ticket-chat-input');
   const sendBtn = document.getElementById('ticket-chat-send-btn');
   if (ticket.status === 'resolved') {
@@ -1544,6 +1563,41 @@ function appendChatMessage(msg) {
   text.className = 'text';
   text.textContent = msg.content || '';
   bubble.appendChild(text);
+
+  if (msg.attachment_key || msg.attachment_url) {
+    const attachContainer = document.createElement('div');
+    attachContainer.className = 'attachment-container';
+    const attachType = msg.attachment_type || '';
+    if (attachType.startsWith('image/')) {
+      const img = document.createElement('img');
+      img.className = 'attachment-img';
+      img.alt = msg.attachment_name || 'Attachment image';
+      img.title = 'Click to open full image';
+      img.addEventListener('click', () => openAttachment(msg.attachment_url));
+      (async () => {
+        try {
+          const urlToken = new URL(msg.attachment_url, location.href).searchParams.get('token');
+          if (urlToken) {
+            const r = await api(`/api/chat/attachments/view?token=${encodeURIComponent(urlToken)}`);
+            if (r.ok) {
+              const b = await r.blob();
+              img.src = URL.createObjectURL(b);
+            }
+          }
+        } catch (_) {}
+      })();
+      attachContainer.appendChild(img);
+    } else {
+      const docBtn = document.createElement('button');
+      docBtn.type = 'button';
+      docBtn.className = 'attachment-doc';
+      const sizeStr = msg.attachment_size ? ` (${formatBytes(msg.attachment_size)})` : '';
+      docBtn.textContent = `📄 ${msg.attachment_name || 'Document'}${sizeStr}`;
+      docBtn.addEventListener('click', () => openAttachment(msg.attachment_url));
+      attachContainer.appendChild(docBtn);
+    }
+    bubble.appendChild(attachContainer);
+  }
 
   if (msg.timestamp) {
     const timeEl = document.createElement('div');
@@ -1810,14 +1864,114 @@ document.getElementById('payouts-next-btn').addEventListener('click', () => {
   }
 });
 
-// Ticket Chat Form & Close Listeners
+// Ticket Chat Form, File Attachments & Close Listeners
+function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+async function openAttachment(signedUrl) {
+  try {
+    const token = new URL(signedUrl, location.href).searchParams.get('token');
+    if (!token) {
+      alert('Attachment token is missing');
+      return;
+    }
+    const res = await api(`/api/chat/attachments/view?token=${encodeURIComponent(token)}`);
+    if (!res.ok) {
+      alert(`Attachment could not be loaded (HTTP ${res.status})`);
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener');
+  } catch (err) {
+    console.error('Failed to open attachment:', err);
+    alert('Failed to open attachment: ' + (err.message || 'network error'));
+  }
+}
+
+async function sendTicketAttachment(ticketId, file, content) {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (content) {
+    formData.append('content', content);
+  }
+  const token = sessionStorage.getItem(tokenKey);
+  const res = await fetch(`/api/tickets/attachment?ticket_id=${encodeURIComponent(ticketId)}`, {
+    method: 'POST',
+    headers: {
+      'X-Reviewer-Token': token,
+    },
+    body: formData,
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
+const attachBtn = document.getElementById('ticket-chat-attach-btn');
+const fileInput = document.getElementById('ticket-chat-file-input');
+const filePreview = document.getElementById('ticket-chat-file-preview');
+const fileName = document.getElementById('ticket-chat-file-name');
+const fileRemove = document.getElementById('ticket-chat-file-remove');
+
+if (attachBtn && fileInput) {
+  attachBtn.addEventListener('click', () => fileInput.click());
+}
+
+if (fileInput && filePreview && fileName) {
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files && fileInput.files[0]) {
+      const f = fileInput.files[0];
+      fileName.textContent = `📎 ${f.name} (${formatBytes(f.size)})`;
+      show(filePreview);
+    } else {
+      hide(filePreview);
+    }
+  });
+}
+
+if (fileRemove && fileInput && filePreview) {
+  fileRemove.addEventListener('click', () => {
+    fileInput.value = '';
+    hide(filePreview);
+  });
+}
+
 const ticketChatForm = document.getElementById('ticket-chat-form');
 if (ticketChatForm) {
-  ticketChatForm.addEventListener('submit', (e) => {
+  ticketChatForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (!activeChatTicket || !activeChatWs || activeChatWs.readyState !== WebSocket.OPEN) return;
+    if (!activeChatTicket) return;
     const input = document.getElementById('ticket-chat-input');
     const content = input.value.trim();
+
+    if (fileInput && fileInput.files && fileInput.files[0]) {
+      const file = fileInput.files[0];
+      const sendBtn = document.getElementById('ticket-chat-send-btn');
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Uploading…';
+      try {
+        await sendTicketAttachment(activeChatTicket.ticket_id, file, content);
+        fileInput.value = '';
+        hide(filePreview);
+        input.value = '';
+      } catch (err) {
+        alert('Failed to upload attachment: ' + err.message);
+      } finally {
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Send';
+      }
+      return;
+    }
+
+    if (!activeChatWs || activeChatWs.readyState !== WebSocket.OPEN) return;
     if (!content) return;
     activeChatWs.send(JSON.stringify({
       action: 'message',
@@ -1825,6 +1979,143 @@ if (ticketChatForm) {
       content: content,
     }));
     input.value = '';
+  });
+}
+
+// User KYC Documents Modal Logic
+let currentUserDocsTarget = null;
+let lastUserDocsReason = '';
+
+function openUserDocsDialog(user) {
+  currentUserDocsTarget = user;
+  lastUserDocsReason = '';
+  const dlg = document.getElementById('user-docs-dialog');
+  const targetP = document.getElementById('user-docs-target');
+  targetP.textContent = `User: ${user.username || user.email || user.id} (ID: ${user.id})`;
+
+  document.getElementById('user-docs-reason').value = '';
+  hide(document.getElementById('user-docs-reason-error'));
+  hide(document.getElementById('user-docs-error'));
+  show(document.getElementById('user-docs-reason-form'));
+  hide(document.getElementById('user-docs-results'));
+  document.getElementById('user-docs-links').innerHTML = '';
+
+  dlg.showModal();
+}
+
+async function retrieveUserDocs(user, reason) {
+  const reasonError = document.getElementById('user-docs-reason-error');
+  const resultsError = document.getElementById('user-docs-error');
+  hide(reasonError);
+  hide(resultsError);
+
+  const cleanReason = (reason || '').trim();
+  if (!cleanReason) {
+    reasonError.textContent = 'Reason is mandatory for retrieving KYC documents.';
+    show(reasonError);
+    return;
+  }
+  if (cleanReason.length > 1000) {
+    reasonError.textContent = 'Reason cannot exceed 1000 characters.';
+    show(reasonError);
+    return;
+  }
+
+  const fetchBtn = document.getElementById('user-docs-fetch-btn');
+  const refreshBtn = document.getElementById('user-docs-refresh-btn');
+  fetchBtn.disabled = true;
+  refreshBtn.disabled = true;
+
+  try {
+    const res = await api(`/api/documents/user?user_id=${encodeURIComponent(user.id)}&reason=${encodeURIComponent(cleanReason)}`);
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      const msg = errData.error || `HTTP ${res.status}`;
+      reasonError.textContent = `Failed to retrieve documents: ${msg}`;
+      show(reasonError);
+      resultsError.textContent = `Failed to retrieve documents: ${msg}`;
+      show(resultsError);
+      return;
+    }
+
+    lastUserDocsReason = cleanReason;
+    const data = await res.json();
+
+    hide(document.getElementById('user-docs-reason-form'));
+    show(document.getElementById('user-docs-results'));
+
+    const statusBar = document.getElementById('user-docs-status-bar');
+    statusBar.innerHTML = `<strong>KYC Status:</strong> <span class="badge badge-${data.kyc_status || 'none'}">${(data.kyc_status || 'none').toUpperCase()}</span> &nbsp;|&nbsp; <strong>KYE Status:</strong> <span class="badge badge-${data.kye_status || 'none'}">${(data.kye_status || 'none').toUpperCase()}</span>`;
+
+    const linksContainer = document.getElementById('user-docs-links');
+    linksContainer.innerHTML = '';
+
+    const slots = [
+      ['ID Front', data.id_front_url],
+      ['ID Back', data.id_back_url],
+      ['Selfie', data.selfie_url],
+      ['Business Proof', data.business_proof_url],
+    ].filter(([, url]) => url);
+
+    const emptyP = document.getElementById('user-docs-empty');
+    if (slots.length === 0) {
+      show(emptyP);
+    } else {
+      hide(emptyP);
+      for (const [label, url] of slots) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-sm';
+        btn.textContent = `View ${label}`;
+        btn.style.margin = '0.35rem';
+        btn.addEventListener('click', () => openDocument(url));
+        linksContainer.appendChild(btn);
+      }
+    }
+
+    if (data.document_errors && data.document_errors.length > 0) {
+      resultsError.textContent = data.document_errors.join(', ');
+      show(resultsError);
+    }
+  } catch (err) {
+    reasonError.textContent = `Network error: ${err.message}`;
+    show(reasonError);
+  } finally {
+    fetchBtn.disabled = false;
+    refreshBtn.disabled = false;
+  }
+}
+
+const userDocsFetchBtn = document.getElementById('user-docs-fetch-btn');
+if (userDocsFetchBtn) {
+  userDocsFetchBtn.addEventListener('click', () => {
+    const reason = document.getElementById('user-docs-reason').value;
+    if (currentUserDocsTarget) {
+      retrieveUserDocs(currentUserDocsTarget, reason);
+    }
+  });
+}
+
+const userDocsRefreshBtn = document.getElementById('user-docs-refresh-btn');
+if (userDocsRefreshBtn) {
+  userDocsRefreshBtn.addEventListener('click', () => {
+    if (currentUserDocsTarget) {
+      retrieveUserDocs(currentUserDocsTarget, lastUserDocsReason);
+    }
+  });
+}
+
+const userDocsReasonCancel = document.getElementById('user-docs-reason-cancel');
+if (userDocsReasonCancel) {
+  userDocsReasonCancel.addEventListener('click', () => {
+    document.getElementById('user-docs-dialog').close();
+  });
+}
+
+const userDocsClose = document.getElementById('user-docs-close');
+if (userDocsClose) {
+  userDocsClose.addEventListener('click', () => {
+    document.getElementById('user-docs-dialog').close();
   });
 }
 

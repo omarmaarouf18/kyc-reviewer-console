@@ -13,20 +13,31 @@ import (
 // carry BOTH X-Internal-Token (injected by this console) and
 // X-Reviewer-Token (presented by the reviewer's browser).
 type upstreamStub struct {
-	t             *testing.T
-	gotInternal   string
-	gotReviewer   string
-	gotPath       string
-	gotBody       map[string]any
-	statusCode    int
-	contentType   string
-	responseBytes []byte
+	t              *testing.T
+	gotInternal    string
+	gotReviewer    string
+	gotPath        string
+	gotRawQuery    string
+	gotContentType string
+	gotHeaders     map[string]string
+	gotBody        map[string]any
+	statusCode     int
+	contentType    string
+	responseBytes  []byte
 }
 
 func (u *upstreamStub) handler(w http.ResponseWriter, r *http.Request) {
 	u.gotInternal = r.Header.Get("X-Internal-Token")
 	u.gotReviewer = r.Header.Get("X-Reviewer-Token")
 	u.gotPath = r.URL.Path
+	u.gotRawQuery = r.URL.RawQuery
+	u.gotContentType = r.Header.Get("Content-Type")
+	u.gotHeaders = make(map[string]string)
+	for k, vv := range r.Header {
+		if len(vv) > 0 {
+			u.gotHeaders[k] = vv[0]
+		}
+	}
 	if r.Body != nil {
 		b, _ := io.ReadAll(r.Body)
 		if len(b) > 0 {
@@ -806,6 +817,214 @@ func TestRejectPayout_ValidationsAndForwarding(t *testing.T) {
 		}
 		if stub.gotPath != "/admin/payouts/reject" {
 			t.Errorf("unexpected path: %q", stub.gotPath)
+		}
+	})
+}
+
+func TestUserDocuments_ValidationsAndForwarding(t *testing.T) {
+	t.Run("wrong method rejected", func(t *testing.T) {
+		p := NewWithServices("secret", "https://auth-service", "https://user-service", "https://chat-service", http.DefaultClient)
+		req := httptest.NewRequest(http.MethodPost, "/api/documents/user", nil)
+		rec := httptest.NewRecorder()
+		p.UserDocuments(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected 405, got %d", rec.Code)
+		}
+	})
+
+	t.Run("missing reviewer token rejected", func(t *testing.T) {
+		p := NewWithServices("secret", "https://auth-service", "https://user-service", "https://chat-service", http.DefaultClient)
+		req := httptest.NewRequest(http.MethodGet, "/api/documents/user?user_id=u1&reason=audit", nil)
+		rec := httptest.NewRecorder()
+		p.UserDocuments(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d", rec.Code)
+		}
+	})
+
+	t.Run("missing user identifier rejected", func(t *testing.T) {
+		p := NewWithServices("secret", "https://auth-service", "https://user-service", "https://chat-service", http.DefaultClient)
+		req := httptest.NewRequest(http.MethodGet, "/api/documents/user?reason=audit", nil)
+		req.Header.Set("X-Reviewer-Token", "tok")
+		rec := httptest.NewRecorder()
+		p.UserDocuments(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("missing reason rejected", func(t *testing.T) {
+		p := NewWithServices("secret", "https://auth-service", "https://user-service", "https://chat-service", http.DefaultClient)
+		req := httptest.NewRequest(http.MethodGet, "/api/documents/user?user_id=u1", nil)
+		req.Header.Set("X-Reviewer-Token", "tok")
+		rec := httptest.NewRecorder()
+		p.UserDocuments(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("oversized reason rejected", func(t *testing.T) {
+		p := NewWithServices("secret", "https://auth-service", "https://user-service", "https://chat-service", http.DefaultClient)
+		req := httptest.NewRequest(http.MethodGet, "/api/documents/user?user_id=u1&reason="+strings.Repeat("r", 1001), nil)
+		req.Header.Set("X-Reviewer-Token", "tok")
+		rec := httptest.NewRecorder()
+		p.UserDocuments(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("valid request forwarded to auth-service", func(t *testing.T) {
+		stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+			responseBytes: []byte(`{"user_id":"u-100","id_front_url":"https://view"}`)}
+		upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+		p := NewWithServices("secret-internal", upstream.URL, "https://user-service", "https://chat-service", upstream.Client())
+		t.Cleanup(upstream.Close)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/documents/user?user_id=u-100&reason=audit-check", nil)
+		req.Header.Set("X-Reviewer-Token", "tok-user-docs")
+		rec := httptest.NewRecorder()
+		p.UserDocuments(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if !strings.HasPrefix(stub.gotPath, "/auth/reviewer/user-documents") {
+			t.Errorf("unexpected path: %q", stub.gotPath)
+		}
+		if stub.gotHeaders["X-Internal-Token"] != "secret-internal" {
+			t.Errorf("missing internal token: %v", stub.gotHeaders)
+		}
+		if stub.gotHeaders["X-Reviewer-Token"] != "tok-user-docs" {
+			t.Errorf("missing reviewer token: %v", stub.gotHeaders)
+		}
+	})
+}
+
+func TestTicketAttachment_ValidationsAndForwarding(t *testing.T) {
+	t.Run("wrong method rejected", func(t *testing.T) {
+		p := NewWithServices("secret", "https://auth-service", "https://user-service", "https://chat-service", http.DefaultClient)
+		req := httptest.NewRequest(http.MethodGet, "/api/tickets/attachment?ticket_id=tkt-1", nil)
+		rec := httptest.NewRecorder()
+		p.TicketAttachment(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected 405, got %d", rec.Code)
+		}
+	})
+
+	t.Run("missing reviewer token rejected", func(t *testing.T) {
+		p := NewWithServices("secret", "https://auth-service", "https://user-service", "https://chat-service", http.DefaultClient)
+		req := httptest.NewRequest(http.MethodPost, "/api/tickets/attachment?ticket_id=tkt-1", strings.NewReader("data"))
+		rec := httptest.NewRecorder()
+		p.TicketAttachment(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d", rec.Code)
+		}
+	})
+
+	t.Run("missing ticket_id rejected", func(t *testing.T) {
+		p := NewWithServices("secret", "https://auth-service", "https://user-service", "https://chat-service", http.DefaultClient)
+		req := httptest.NewRequest(http.MethodPost, "/api/tickets/attachment", strings.NewReader("data"))
+		req.Header.Set("X-Reviewer-Token", "tok")
+		rec := httptest.NewRecorder()
+		p.TicketAttachment(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("valid attachment upload forwarded to chat-service", func(t *testing.T) {
+		stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+			responseBytes: []byte(`{"status":"success","attachment_url":"https://view"}`)}
+		upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+		p := NewWithServices("secret-internal", "https://auth-service", "https://user-service", upstream.URL, upstream.Client())
+		t.Cleanup(upstream.Close)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/tickets/attachment?ticket_id=tkt-999", strings.NewReader("dummy-multipart-content"))
+		req.Header.Set("Content-Type", "multipart/form-data; boundary=---boundary123")
+		req.Header.Set("X-Reviewer-Token", "tok-attach")
+		rec := httptest.NewRecorder()
+		p.TicketAttachment(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if stub.gotPath != "/chat/tickets/tkt-999/attachment" {
+			t.Errorf("unexpected upstream path: %q", stub.gotPath)
+		}
+		if stub.gotHeaders["Content-Type"] != "multipart/form-data; boundary=---boundary123" {
+			t.Errorf("expected Content-Type preserved, got %q", stub.gotHeaders["Content-Type"])
+		}
+		if stub.gotHeaders["X-Internal-Token"] != "secret-internal" {
+			t.Errorf("missing internal token")
+		}
+	})
+}
+
+func TestAttachmentView_ValidationsAndForwarding(t *testing.T) {
+	t.Run("wrong method rejected", func(t *testing.T) {
+		p := NewWithServices("secret", "https://auth-service", "https://user-service", "https://chat-service", http.DefaultClient)
+		req := httptest.NewRequest(http.MethodPost, "/api/chat/attachments/view?token=tok", nil)
+		rec := httptest.NewRecorder()
+		p.AttachmentView(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected 405, got %d", rec.Code)
+		}
+	})
+
+	t.Run("missing reviewer token rejected", func(t *testing.T) {
+		p := NewWithServices("secret", "https://auth-service", "https://user-service", "https://chat-service", http.DefaultClient)
+		req := httptest.NewRequest(http.MethodGet, "/api/chat/attachments/view?token=tok", nil)
+		rec := httptest.NewRecorder()
+		p.AttachmentView(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d", rec.Code)
+		}
+	})
+
+	t.Run("missing token param rejected", func(t *testing.T) {
+		p := NewWithServices("secret", "https://auth-service", "https://user-service", "https://chat-service", http.DefaultClient)
+		req := httptest.NewRequest(http.MethodGet, "/api/chat/attachments/view", nil)
+		req.Header.Set("X-Reviewer-Token", "tok")
+		rec := httptest.NewRecorder()
+		p.AttachmentView(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("dangerous token chars rejected", func(t *testing.T) {
+		p := NewWithServices("secret", "https://auth-service", "https://user-service", "https://chat-service", http.DefaultClient)
+		req := httptest.NewRequest(http.MethodGet, "/api/chat/attachments/view?token=bad/token", nil)
+		req.Header.Set("X-Reviewer-Token", "tok")
+		rec := httptest.NewRecorder()
+		p.AttachmentView(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("valid view forwarded to chat-service", func(t *testing.T) {
+		stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+			responseBytes: []byte("image-binary-data")}
+		upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+		p := NewWithServices("secret-internal", "https://auth-service", "https://user-service", upstream.URL, upstream.Client())
+		t.Cleanup(upstream.Close)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/chat/attachments/view?token=valid-jwt-view-token", nil)
+		req.Header.Set("X-Reviewer-Token", "tok-view")
+		rec := httptest.NewRecorder()
+		p.AttachmentView(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if stub.gotPath != "/chat/attachments/view" || stub.gotRawQuery != "token=valid-jwt-view-token" {
+			t.Errorf("unexpected path or query: path=%q query=%q", stub.gotPath, stub.gotRawQuery)
+		}
+		if rec.Body.String() != "image-binary-data" {
+			t.Errorf("body mismatch: %s", rec.Body.String())
 		}
 	})
 }

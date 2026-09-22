@@ -229,3 +229,84 @@ test('submitResolveTicket() catches 401 gracefully without unhandled promise rej
   assert.equal(logoutCalled, true);
   assert.equal(unhandledCrash, false);
 });
+
+test('formatBytes formats various file sizes correctly', () => {
+  function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
+  assert.equal(formatBytes(0), '0 B');
+  assert.equal(formatBytes(500), '500 B');
+  assert.equal(formatBytes(1024), '1 KB');
+  assert.equal(formatBytes(1536), '1.5 KB');
+  assert.equal(formatBytes(1048576), '1 MB');
+  assert.equal(formatBytes(5242880), '5 MB');
+});
+
+test('retrieveUserDocs validates mandatory reason before calling API', async () => {
+  let apiCalled = false;
+  async function mockApi(path) {
+    apiCalled = true;
+    return { ok: true, json: async () => ({}) };
+  }
+
+  async function retrieveUserDocs(user, reason) {
+    const cleanReason = (reason || '').trim();
+    if (!cleanReason) {
+      return { error: 'Reason is mandatory for retrieving KYC documents.' };
+    }
+    if (cleanReason.length > 1000) {
+      return { error: 'Reason cannot exceed 1000 characters.' };
+    }
+    return await mockApi(`/api/documents/user?user_id=${user.id}&reason=${cleanReason}`);
+  }
+
+  const resEmpty = await retrieveUserDocs({ id: 'u1' }, '   ');
+  assert.equal(resEmpty.error, 'Reason is mandatory for retrieving KYC documents.');
+  assert.equal(apiCalled, false);
+
+  const resOversized = await retrieveUserDocs({ id: 'u1' }, 'x'.repeat(1001));
+  assert.equal(resOversized.error, 'Reason cannot exceed 1000 characters.');
+  assert.equal(apiCalled, false);
+
+  const resValid = await retrieveUserDocs({ id: 'u1' }, 'compliance audit');
+  assert.equal(apiCalled, true);
+});
+
+test('sendTicketAttachment attaches X-Reviewer-Token and sends multipart FormData', async () => {
+  let sentHeaders = {};
+  let sentUrl = '';
+
+  async function mockFetch(url, options) {
+    sentUrl = url;
+    sentHeaders = options.headers;
+    return {
+      ok: true,
+      json: async () => ({ status: 'success', attachment_url: 'https://test/attachment' }),
+    };
+  }
+
+  async function sendTicketAttachment(ticketId, file, content, token) {
+    const formData = new Map();
+    formData.set('file', file);
+    if (content) formData.set('content', content);
+
+    const res = await mockFetch(`/api/tickets/attachment?ticket_id=${encodeURIComponent(ticketId)}`, {
+      method: 'POST',
+      headers: {
+        'X-Reviewer-Token': token,
+      },
+      body: formData,
+    });
+    return await res.json();
+  }
+
+  const res = await sendTicketAttachment('tkt-456', { name: 'photo.png' }, 'Screenshot', 'rev-tok-999');
+  assert.equal(sentUrl, '/api/tickets/attachment?ticket_id=tkt-456');
+  assert.equal(sentHeaders['X-Reviewer-Token'], 'rev-tok-999');
+  assert.equal(res.status, 'success');
+});

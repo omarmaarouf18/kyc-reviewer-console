@@ -253,6 +253,7 @@
             <span id="chat-ticket-meta" class="muted small"></span>
           </div>
           <div class="chat-actions">
+            <button id="chat-kyc-docs-btn" type="button" class="btn-sm secondary" title="View Customer KYC Documents">View KYC</button>
             <button id="chat-resolve-btn" type="button" class="btn-sm">Resolve Ticket…</button>
             <button id="chat-close-btn" type="button" class="btn-sm secondary">Close Chat</button>
           </div>
@@ -260,7 +261,14 @@
 
         <div id="ticket-chat-messages" class="chat-messages"></div>
 
+        <div id="ticket-chat-file-preview" class="file-preview-bar" hidden>
+          <span id="ticket-chat-file-name" class="file-name"></span>
+          <button type="button" id="ticket-chat-file-remove" class="remove-btn" title="Remove attachment">&times;</button>
+        </div>
+
         <form id="ticket-chat-form" class="chat-input-bar">
+          <input type="file" id="ticket-chat-file-input" accept="image/jpeg,image/png,application/pdf" hidden />
+          <button type="button" id="ticket-chat-attach-btn" class="attach-btn" title="Attach image or PDF">📎</button>
           <input type="text" id="ticket-chat-input" placeholder="Type a message to the customer..." autocomplete="off" />
           <button type="submit" id="ticket-chat-send-btn">Send</button>
         </form>
@@ -440,6 +448,32 @@
         <button id="reject-payout-cancel" type="button" class="secondary">Cancel</button>
         <button id="reject-payout-submit" type="button" class="danger">Confirm Rejection</button>
       </menu>
+    </dialog>
+
+    <!-- Dialog: View User KYC Documents (Admin Access with Mandatory Reason) -->
+    <dialog id="user-docs-dialog">
+      <h2>User KYC Documents</h2>
+      <p id="user-docs-target" class="muted"></p>
+      <div id="user-docs-reason-form">
+        <p class="info-callout">Viewing user identity documents requires a mandatory audit reason (logged to security compliance trail).</p>
+        <label for="user-docs-reason">Audit Reason (required) <span class="required">*</span></label>
+        <textarea id="user-docs-reason" maxlength="1000" rows="2" placeholder="e.g., Ticket dispute verification or compliance identity re-check" required></textarea>
+        <p id="user-docs-reason-error" class="error" hidden></p>
+        <menu>
+          <button id="user-docs-reason-cancel" type="button" class="secondary">Cancel</button>
+          <button id="user-docs-fetch-btn" type="button">Retrieve Documents</button>
+        </menu>
+      </div>
+      <div id="user-docs-results" hidden>
+        <div id="user-docs-status-bar" class="doc-status-banner"></div>
+        <div class="doc-grid" id="user-docs-links"></div>
+        <p id="user-docs-empty" class="muted" hidden>No documents on file for this user.</p>
+        <p id="user-docs-error" class="error" hidden></p>
+        <menu>
+          <button id="user-docs-refresh-btn" type="button" class="secondary">Refresh URLs</button>
+          <button id="user-docs-close" type="button" class="secondary">Close</button>
+        </menu>
+      </div>
     </dialog>
   </section>
 

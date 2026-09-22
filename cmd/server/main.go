@@ -60,6 +60,7 @@ func main() {
 	mux.HandleFunc("/api/queue", p.Queue)
 	mux.HandleFunc("/api/review", p.Review)
 	mux.HandleFunc("/api/documents/view", p.DocumentView)
+	mux.HandleFunc("/api/documents/user", p.UserDocuments)
 	mux.HandleFunc("/api/accounts", p.Accounts)
 	mux.HandleFunc("/api/accounts/suspend", p.Suspend)
 	mux.HandleFunc("/api/accounts/reactivate", p.Reactivate)
@@ -78,6 +79,8 @@ func main() {
 	mux.HandleFunc("/api/tickets/history", p.TicketsHistory)
 	mux.HandleFunc("/api/chat/history", p.TicketsHistory)
 	mux.HandleFunc("/api/tickets/resolve", p.ResolveTicket)
+	mux.HandleFunc("/api/tickets/attachment", p.TicketAttachment)
+	mux.HandleFunc("/api/chat/attachments/view", p.AttachmentView)
 	mux.HandleFunc("/api/chat/ws", p.ChatWebSocket)
 	mux.Handle("/", http.FileServer(http.Dir("web")))
 

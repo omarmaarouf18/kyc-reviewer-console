@@ -456,6 +456,88 @@ dialog .doc-grid { margin-bottom: 0.75rem; }
   border-color: var(--primary);
 }
 
+.attach-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.55rem 0.75rem;
+  font-size: 1rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.attach-btn:hover {
+  background: var(--bg);
+}
+
+.file-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #edf2f7;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.8rem;
+  border-top: 1px solid var(--border);
+}
+
+.file-preview-bar .remove-btn {
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  cursor: pointer;
+  color: var(--error);
+  padding: 0 0.25rem;
+  line-height: 1;
+}
+
+.chat-bubble .attachment-container {
+  margin-top: 0.4rem;
+}
+
+.chat-bubble .attachment-img {
+  max-width: 220px;
+  max-height: 180px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: block;
+  object-fit: cover;
+  border: 1px solid rgba(0,0,0,0.1);
+  transition: opacity 0.15s ease;
+}
+
+.chat-bubble .attachment-img:hover {
+  opacity: 0.9;
+}
+
+.chat-bubble .attachment-doc {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(0,0,0,0.06);
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  text-decoration: none;
+  color: inherit;
+  font-size: 0.825rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+.chat-bubble.reviewer .attachment-doc {
+  background: rgba(255,255,255,0.2);
+  border-color: rgba(255,255,255,0.3);
+  color: #ffffff;
+}
+
+.doc-status-banner {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  background: var(--bg);
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+}
+
 @media (max-width: 40rem) {
   th:nth-child(3), td:nth-child(3),
   th:nth-child(5), td:nth-child(5) { display: none; }
