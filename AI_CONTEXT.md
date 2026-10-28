@@ -54,6 +54,19 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
   `web/xss_test.js` renders every table/dialog with
   `<img src=x onerror=alert(1)>` payloads and asserts no element or `on*`
   attribute was created. Run: `node --test web/*_test.js`.
+- **Security headers (item 2)**: `cmd/server/routes.go` (`newHandler`)
+  wraps every response with a strict CSP (`default-src 'self'; script-src
+  'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'`
+  plus `wss://<host>` — and `ws://<host>` on plain HTTP — for the chat
+  socket; `object-src 'none'; frame-ancestors 'none'; base-uri 'none';
+  form-action 'self'`), `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`, `Permissions-Policy` (camera, microphone,
+  geolocation off), `X-Frame-Options: DENY`, and `Cache-Control: no-store`
+  on `/api/*`. The Host header is validated before it is echoed into the
+  CSP. No inline script, handler or style attribute may be added to
+  `web/` (CSP blocks them). Static serving is an allow-list (`/`,
+  `/index.html`, `/app.js`, `/style.css`) so test files under `web/` are
+  never served. Tests: `cmd/server/routes_test.go`.
 
 ### KYC User Documents Admin Access & Support Ticket File Attachments
 
