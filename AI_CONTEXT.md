@@ -34,7 +34,7 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
   All destructive and override operations enforce local input validation (mandatory reasons, 1–1000 characters) before forwarding to upstream services.
 - `cmd/server` — HTTP server with timeouts, CR/LF-sanitized logging, static UI serving, and route registration for all `/api/*` endpoints.
 - `web/` — 6-tab vanilla UI (`web/index.html`, `web/app.js`, `web/style.css`) with tab-scoped session auth, search toolbars, status filters, pagination controls, dynamic badge counters, and action dialog modals.
-- CI: `.github/workflows/ci.yml` (gofmt, build, vet, test, gosec);
+- CI: `.github/workflows/ci.yml` (gofmt, build, vet, test, web tests, gosec);
   `.github/workflows/contract-sync.yml` responding to saas-core's `reviewer-api-contract` repository_dispatch.
 
 ## Recent Changes
@@ -107,6 +107,19 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
   `approved`, `paid`, `rejected` (the UI had a non-existent `processed`).
   CI now runs the web tests (`node --test web/*_test.js`, Node 24).
   Tests: `web/ui_test.js`.
+- **Docs (item 6)**: README "Security" section (XSS rule, CSP, headers,
+  blob type allow-list, idle timeout, socket auth, proxy limits) and CI/CD
+  list (web tests, release.yml). Deploy: release.yml publishes
+  `ghcr.io/omarmaarouf18/kyc-reviewer-console:<sha>` on push to `main`; on
+  the VM set `KYC_CONSOLE_IMAGE_TAG=<sha>` (not `latest`) in
+  `/home/deploybot/.env` and redeploy only that service.
+- **Saas-core follow-ups** (not done here): chat-service `/chat/ws` should
+  accept the token from a header so the console can stop putting it in
+  the upstream query; saas-core e2e `ConnectConsoleWS` should dial with
+  the `kyc-console-auth` subprotocol so the console's deprecated `?token=`
+  fallback can be removed; the reconciliation queue item lacks
+  pickup/dropoff address, category and route points if the console should
+  show them.
 
 ### KYC User Documents Admin Access & Support Ticket File Attachments
 
@@ -152,6 +165,11 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
   - All 5 routes (`/api/queue`, `/api/accounts`, `/api/reconciliation/queue`, `/api/subscriptions`, `/api/tickets`) return `200 OK` on production stack (`quickdelivery-vm`).
 
 ## Standing Rules
+
+- API data never goes into `innerHTML` / template-literal HTML; use
+  `textContent` via `el()` / `badge()` / `detailRow()` (README "Security").
+- No inline script, event-handler attribute or `style="..."` in `web/` — the
+  CSP blocks them.
 
 - Every code change updates this file in the same commit.
 - The internal service token must never be logged, embedded in the UI bundle, or sent anywhere except downstream internal microservices.
