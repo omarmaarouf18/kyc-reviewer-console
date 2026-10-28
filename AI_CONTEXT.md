@@ -79,6 +79,9 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
   `ChatWebSocket` takes it from there, drops any client query string and
   builds the upstream `?token=` server-side (chat-service only accepts
   the query — saas-core follow-up), and echoes `kyc-console-auth` on 101.
+  Deprecated fallback: a client offering no subprotocol may still send
+  `?token=` (saas-core `tests/e2e` `ConnectConsoleWS` does); remove it once
+  that suite dials with `Subprotocols: ["kyc-console-auth", token]`.
   Upstream error logs no longer print `*url.Error` text or query strings
   (`upstreamErrText`, `stripQuery`). Tests: `web/session_test.js`,
   `internal/proxy/websocket_test.go`.

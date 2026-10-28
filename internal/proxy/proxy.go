@@ -758,13 +758,21 @@ func reviewerTokenFromSubprotocols(r *http.Request) string {
 //
 // chat-service authenticates the socket only via GET /chat/ws?token=, so the
 // token taken from the subprotocol is put on the upstream URL here, server
-// side. Any client-supplied query string is dropped.
+// side. Any other client-supplied query string is dropped.
+//
+// Deprecated fallback: a client that offers no subprotocol may still send
+// ?token= (saas-core's e2e suite does, tests/e2e ConnectConsoleWS). The
+// console UI never does; remove the fallback once that suite migrates.
 func (p *ReviewerProxy) ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
 		return
 	}
 	token := reviewerTokenFromSubprotocols(r)
+	viaSubprotocol := token != ""
+	if !viaSubprotocol && len(r.Header.Values("Sec-WebSocket-Protocol")) == 0 {
+		token = r.URL.Query().Get("token")
+	}
 	if token == "" {
 		http.Error(w, `{"error":"reviewer token required"}`, http.StatusUnauthorized)
 		return
@@ -788,7 +796,7 @@ func (p *ReviewerProxy) ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 		req.Header.Del("Sec-WebSocket-Protocol")
 	}
 	rp.ModifyResponse = func(resp *http.Response) error {
-		if resp.StatusCode == http.StatusSwitchingProtocols {
+		if viaSubprotocol && resp.StatusCode == http.StatusSwitchingProtocols {
 			// The browser fails the handshake unless one offered protocol is echoed.
 			resp.Header.Set("Sec-WebSocket-Protocol", wsAuthProtocol)
 		}

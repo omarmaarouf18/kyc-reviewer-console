@@ -77,7 +77,7 @@ func TestChatWebSocket_TokenFromSubprotocolNotURL(t *testing.T) {
 	}
 }
 
-func TestChatWebSocket_RejectsMissingOrQueryToken(t *testing.T) {
+func TestChatWebSocket_RejectsMissingToken_LegacyQueryFallback(t *testing.T) {
 	chat := &fakeChatService{}
 	upstream := httptest.NewServer(http.HandlerFunc(chat.handler))
 	defer upstream.Close()
@@ -86,10 +86,10 @@ func TestChatWebSocket_RejectsMissingOrQueryToken(t *testing.T) {
 	defer console.Close()
 
 	for name, tc := range map[string]struct{ path, protocols string }{
-		"query token only":    {"/api/chat/ws?token=0123abcd", ""},
-		"no token":            {"/api/chat/ws", ""},
-		"wrong protocol name": {"/api/chat/ws", "chat, 0123abcd"},
-		"protocol name only":  {"/api/chat/ws", "kyc-console-auth"},
+		"no token":                      {"/api/chat/ws", ""},
+		"query token with bad protocol": {"/api/chat/ws?token=0123abcd", "chat"},
+		"wrong protocol name":           {"/api/chat/ws", "chat, 0123abcd"},
+		"protocol name only":            {"/api/chat/ws", "kyc-console-auth"},
 	} {
 		if resp := handshake(t, console.URL, tc.path, tc.protocols); resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("%s: status = %d, want 401", name, resp.StatusCode)
@@ -99,8 +99,15 @@ func TestChatWebSocket_RejectsMissingOrQueryToken(t *testing.T) {
 		t.Errorf("upstream called %d times for unauthenticated handshakes", chat.calls)
 	}
 
+	// Deprecated non-browser fallback (saas-core e2e): ?token= with no
+	// subprotocol offered still works, and no protocol is echoed.
+	resp := handshake(t, console.URL, "/api/chat/ws?token=legacy01&x=1", "")
+	if resp.StatusCode != http.StatusSwitchingProtocols || chat.gotQuery != "token=legacy01" || resp.Header.Get("Sec-WebSocket-Protocol") != "" {
+		t.Errorf("legacy query: got %d, upstream query %q, protocol %q", resp.StatusCode, chat.gotQuery, resp.Header.Get("Sec-WebSocket-Protocol"))
+	}
+
 	// A client query string never reaches chat-service alongside the real token.
-	resp := handshake(t, console.URL, "/api/chat/ws?token=attacker&x=1", "kyc-console-auth, 0123abcd")
+	resp = handshake(t, console.URL, "/api/chat/ws?token=attacker&x=1", "kyc-console-auth, 0123abcd")
 	if resp.StatusCode != http.StatusSwitchingProtocols || chat.gotQuery != "token=0123abcd" {
 		t.Errorf("got %d with upstream query %q", resp.StatusCode, chat.gotQuery)
 	}
