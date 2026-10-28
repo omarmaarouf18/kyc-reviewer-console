@@ -542,3 +542,8 @@ dialog .doc-grid { margin-bottom: 0.75rem; }
   th:nth-child(3), td:nth-child(3),
   th:nth-child(5), td:nth-child(5) { display: none; }
 }
+
+.chat-notice {
+  text-align: center;
+  padding: 1rem;
+}

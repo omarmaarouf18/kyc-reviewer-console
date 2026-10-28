@@ -80,6 +80,56 @@ async function api(path, options = {}) {
 function show(el) { if (el) el.hidden = false; }
 function hide(el) { if (el) el.hidden = true; }
 
+// XSS rule: values that come from the API (names, emails, ids, notes,
+// reasons, ticket messages, file names, enums) reach the DOM only through
+// textContent — via el() / badge() / detailRow() below. innerHTML is kept
+// for static markup with no interpolation.
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined && text !== null) node.textContent = String(text);
+  return node;
+}
+
+function badge(badgeClass, text) {
+  return el('span', `badge ${badgeClass}`, text);
+}
+
+// Badge classes come from a fixed map, never from the API value itself.
+function verificationBadgeClass(status) {
+  if (status === 'approved') return 'badge-approved';
+  if (status === 'rejected') return 'badge-rejected';
+  if (status === 'pending' || status === 'pending_super_admin_approval') return 'badge-pending';
+  return 'badge-free';
+}
+
+function detailRow(label, value, valueTag = 'strong') {
+  const row = el('div', 'detail-row');
+  row.appendChild(el('span', '', `${label}:`));
+  row.appendChild(document.createTextNode(' '));
+  row.appendChild(el(valueTag, '', value));
+  return row;
+}
+
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function upper(v, fallback) {
+  return String(v || fallback).toUpperCase();
+}
+
+// Documents and attachments are opened from blob: URLs, which inherit this
+// origin. Only render types that cannot run script; anything else is handed
+// to the browser as a download.
+const inlineBlobTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+
+function safeBlobUrl(blob) {
+  const type = inlineBlobTypes.includes(blob.type) ? blob.type : 'application/octet-stream';
+  return URL.createObjectURL(new Blob([blob], { type }));
+}
+
 function logout(message) {
   sessionStorage.removeItem(tokenKey);
   hide(document.getElementById('app-view'));
@@ -248,8 +298,7 @@ async function openDocument(signedUrl) {
       alert(`Document could not be loaded (HTTP ${res.status})`);
       return;
     }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
+    const url = safeBlobUrl(await res.blob());
     window.open(url, '_blank', 'noopener');
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (e) {
@@ -645,23 +694,27 @@ async function loadReconciliation() {
 
       // Distance Discrepancy
       const distTd = document.createElement('td');
-      const ratio = d.booked_distance > 0 ? (d.actual_distance / d.booked_distance) * 100 : 0;
-      distTd.innerHTML = `<span class="dist-stat"><strong>${d.actual_distance.toFixed(1)} km</strong> tracked</span><br>` +
-        `<span class="muted small">Booked: ${d.booked_distance.toFixed(1)} km (${ratio.toFixed(0)}%)</span><br>` +
-        `<span class="muted small">${d.waypoints_count || 0} waypoints</span>`;
-      if (ratio < 70) {
-        distTd.querySelector('.dist-stat').classList.add('warning-text');
-      }
+      const booked = num(d.booked_distance);
+      const actual = num(d.actual_distance);
+      const ratio = booked > 0 ? (actual / booked) * 100 : 0;
+      const distStat = el('span', ratio < 70 ? 'dist-stat warning-text' : 'dist-stat');
+      distStat.appendChild(el('strong', '', `${actual.toFixed(1)} km`));
+      distStat.appendChild(document.createTextNode(' tracked'));
+      distTd.appendChild(distStat);
+      distTd.appendChild(el('br'));
+      distTd.appendChild(el('span', 'muted small', `Booked: ${booked.toFixed(1)} km (${ratio.toFixed(0)}%)`));
+      distTd.appendChild(el('br'));
+      distTd.appendChild(el('span', 'muted small', `${num(d.waypoints_count)} waypoints`));
       tr.appendChild(distTd);
 
       // Locked Escrow
       const escrowTd = document.createElement('td');
-      escrowTd.innerHTML = `<strong>${d.locked_escrow_amount.toFixed(2)} EGP</strong>`;
+      escrowTd.appendChild(el('strong', '', `${num(d.locked_escrow_amount).toFixed(2)} EGP`));
       tr.appendChild(escrowTd);
 
       // Payment
       const payTd = document.createElement('td');
-      payTd.innerHTML = `<span class="badge ${d.payment_method === 'cod' ? 'badge-cod' : 'badge-wallet'}">${d.payment_method ? d.payment_method.toUpperCase() : 'WALLET'}</span>`;
+      payTd.appendChild(badge(d.payment_method === 'cod' ? 'badge-cod' : 'badge-wallet', upper(d.payment_method, 'wallet')));
       tr.appendChild(payTd);
 
       // Flag Reason
@@ -705,17 +758,18 @@ function openResolveDisputeDialog(dispute) {
     `Dispute on Job ${dispute.id}`;
 
   const detailsEl = document.getElementById('resolve-dispute-details');
-  const ratio = dispute.booked_distance > 0 ? ((dispute.actual_distance / dispute.booked_distance) * 100).toFixed(0) : '0';
-  detailsEl.innerHTML = `
-    <div class="detail-row"><span>Category:</span> <strong>${capitalize(dispute.category || 'delivery')}</strong></div>
-    <div class="detail-row"><span>Route:</span> <strong>${dispute.pickup_address} &rarr; ${dispute.dropoff_address}</strong></div>
-    <div class="detail-row"><span>Booked vs Tracked:</span> <strong>${dispute.booked_distance.toFixed(1)} km vs ${dispute.actual_distance.toFixed(1)} km (${ratio}%)</strong></div>
-    <div class="detail-row"><span>Locked Escrow:</span> <strong>${dispute.locked_escrow_amount.toFixed(2)} EGP</strong></div>
-    <div class="detail-row"><span>Tenant Owner:</span> <code>${dispute.owner_id}</code></div>
-    <div class="detail-row"><span>Assigned Courier:</span> <code>${dispute.employee_id || '(none)'}</code></div>
-    <div class="detail-row"><span>Customer:</span> <code>${dispute.customer_id}</code></div>
-    <div class="detail-row"><span>Flag Note:</span> <em>${dispute.reconciliation_reason || dispute.reconciliation_note || 'under_distance_mismatch'}</em></div>
-  `;
+  const booked = num(dispute.booked_distance);
+  const actual = num(dispute.actual_distance);
+  const ratio = booked > 0 ? ((actual / booked) * 100).toFixed(0) : '0';
+  detailsEl.textContent = '';
+  detailsEl.appendChild(detailRow('Category', capitalize(String(dispute.category || 'delivery'))));
+  detailsEl.appendChild(detailRow('Route', `${dispute.pickup_address} → ${dispute.dropoff_address}`));
+  detailsEl.appendChild(detailRow('Booked vs Tracked', `${booked.toFixed(1)} km vs ${actual.toFixed(1)} km (${ratio}%)`));
+  detailsEl.appendChild(detailRow('Locked Escrow', `${num(dispute.locked_escrow_amount).toFixed(2)} EGP`));
+  detailsEl.appendChild(detailRow('Tenant Owner', dispute.owner_id, 'code'));
+  detailsEl.appendChild(detailRow('Assigned Courier', dispute.employee_id || '(none)', 'code'));
+  detailsEl.appendChild(detailRow('Customer', dispute.customer_id, 'code'));
+  detailsEl.appendChild(detailRow('Flag Note', dispute.reconciliation_reason || dispute.reconciliation_note || 'under_distance_mismatch', 'em'));
 
   document.getElementById('resolve-dispute-reason').value = '';
   hide(document.getElementById('resolve-dispute-error'));
@@ -823,7 +877,9 @@ async function loadSubscriptions() {
 
       // Tenant ID
       const tenantTd = document.createElement('td');
-      tenantTd.innerHTML = `<strong>${s.tenant_id}</strong><br><code class="id-tag">${s.id || ''}</code>`;
+      tenantTd.appendChild(el('strong', '', s.tenant_id));
+      tenantTd.appendChild(el('br'));
+      tenantTd.appendChild(el('code', 'id-tag', s.id || ''));
       tr.appendChild(tenantTd);
 
       // Tier Status
@@ -832,7 +888,7 @@ async function loadSubscriptions() {
       if (s.tier === 'paid') badgeClass = 'badge-paid';
       else if (s.tier === 'pending_payment') badgeClass = 'badge-pending';
       else if (s.tier === 'cancelled') badgeClass = 'badge-cancelled';
-      tierTd.innerHTML = `<span class="badge ${badgeClass}">${(s.tier || 'FREE').toUpperCase()}</span>`;
+      tierTd.appendChild(badge(badgeClass, upper(s.tier, 'free')));
       tr.appendChild(tierTd);
 
       // Started At
@@ -848,16 +904,15 @@ async function loadSubscriptions() {
       // Audit Notes
       const notesTd = document.createElement('td');
       notesTd.className = 'small';
-      if (s.activated_by) {
-        notesTd.innerHTML += `<span class="muted">Activated by:</span> <code>${s.activated_by}</code><br>`;
+      for (const [label, who] of [['Activated by', s.activated_by], ['Revoked by', s.revoked_by]]) {
+        if (!who) continue;
+        notesTd.appendChild(el('span', 'muted', `${label}:`));
+        notesTd.appendChild(document.createTextNode(' '));
+        notesTd.appendChild(el('code', '', who));
+        notesTd.appendChild(el('br'));
       }
-      if (s.revoked_by) {
-        notesTd.innerHTML += `<span class="muted">Revoked by:</span> <code>${s.revoked_by}</code><br>`;
-      }
-      if (s.reason) {
-        notesTd.innerHTML += `<em>${s.reason}</em>`;
-      }
-      if (!notesTd.innerHTML) notesTd.textContent = '—';
+      if (s.reason) notesTd.appendChild(el('em', '', s.reason));
+      if (!s.activated_by && !s.revoked_by && !s.reason) notesTd.textContent = '—';
       tr.appendChild(notesTd);
 
       // Action
@@ -1049,17 +1104,21 @@ async function loadTickets() {
 
       // Ticket ID
       const idTd = document.createElement('td');
-      idTd.innerHTML = `<strong>#${t.ticket_id.slice(-8)}</strong><br><code class="id-tag">${t.ticket_id}</code>`;
+      idTd.appendChild(el('strong', '', `#${String(t.ticket_id).slice(-8)}`));
+      idTd.appendChild(el('br'));
+      idTd.appendChild(el('code', 'id-tag', t.ticket_id));
       tr.appendChild(idTd);
 
       // Customer ID
       const custTd = document.createElement('td');
-      custTd.innerHTML = `<code>${t.customer_id}</code>`;
+      custTd.appendChild(el('code', '', t.customer_id));
       tr.appendChild(custTd);
 
       // Context / Subject
       const contextTd = document.createElement('td');
-      contextTd.innerHTML = `<strong>${t.subject || 'Complaint / Support'}</strong><br><span class="muted small">${t.context_id || 'general'}</span>`;
+      contextTd.appendChild(el('strong', '', t.subject || 'Complaint / Support'));
+      contextTd.appendChild(el('br'));
+      contextTd.appendChild(el('span', 'muted small', t.context_id || 'general'));
       tr.appendChild(contextTd);
 
       // Status
@@ -1067,12 +1126,12 @@ async function loadTickets() {
       let badgeClass = 'badge-pending';
       if (t.status === 'assigned') badgeClass = 'badge-assigned';
       else if (t.status === 'resolved') badgeClass = 'badge-resolved';
-      statusTd.innerHTML = `<span class="badge ${badgeClass}">${(t.status || 'PENDING').toUpperCase()}</span>`;
+      statusTd.appendChild(badge(badgeClass, upper(t.status, 'pending')));
       tr.appendChild(statusTd);
 
       // Assigned Agent
       const agentTd = document.createElement('td');
-      agentTd.innerHTML = t.assigned_agent_id ? `<code>${t.assigned_agent_id}</code>` : '<span class="muted">(unassigned)</span>';
+      agentTd.appendChild(t.assigned_agent_id ? el('code', '', t.assigned_agent_id) : el('span', 'muted', '(unassigned)'));
       tr.appendChild(agentTd);
 
       // Created At
@@ -1162,11 +1221,10 @@ function openResolveTicketDialog(ticket) {
   targetTicket = ticket;
   document.getElementById('resolve-ticket-target').textContent = `Ticket ${ticket.ticket_id} (Customer: ${ticket.customer_id})`;
   const detailsEl = document.getElementById('resolve-ticket-details');
-  detailsEl.innerHTML = `
-    <div class="detail-row"><span>Context ID:</span> <code>${ticket.context_id || 'none'}</code></div>
-    <div class="detail-row"><span>Assigned Agent:</span> <code>${ticket.assigned_agent_id || 'none'}</code></div>
-    <div class="detail-row"><span>Created:</span> <span>${new Date(ticket.created_at).toLocaleString()}</span></div>
-  `;
+  detailsEl.textContent = '';
+  detailsEl.appendChild(detailRow('Context ID', ticket.context_id || 'none', 'code'));
+  detailsEl.appendChild(detailRow('Assigned Agent', ticket.assigned_agent_id || 'none', 'code'));
+  detailsEl.appendChild(detailRow('Created', new Date(ticket.created_at).toLocaleString(), 'span'));
   document.getElementById('resolve-ticket-note').value = '';
   hide(document.getElementById('resolve-ticket-error'));
   document.getElementById('resolve-ticket-dialog').showModal();
@@ -1295,17 +1353,17 @@ async function loadPayouts() {
 
       // Payout ID
       const idTd = document.createElement('td');
-      idTd.innerHTML = `<code class="id-tag">${p.id || ''}</code>`;
+      idTd.appendChild(el('code', 'id-tag', p.id || ''));
       tr.appendChild(idTd);
 
       // Tenant ID
       const tenantTd = document.createElement('td');
-      tenantTd.innerHTML = `<strong>${p.tenant_id}</strong>`;
+      tenantTd.appendChild(el('strong', '', p.tenant_id));
       tr.appendChild(tenantTd);
 
       // Amount
       const amountTd = document.createElement('td');
-      amountTd.innerHTML = `<strong>$${Number(p.amount || 0).toFixed(2)}</strong>`;
+      amountTd.appendChild(el('strong', '', `$${num(p.amount).toFixed(2)}`));
       tr.appendChild(amountTd);
 
       // Method
@@ -1318,7 +1376,7 @@ async function loadPayouts() {
       let badgeClass = 'badge-pending';
       if (p.status === 'processed') badgeClass = 'badge-paid';
       else if (p.status === 'rejected') badgeClass = 'badge-cancelled';
-      statusTd.innerHTML = `<span class="badge ${badgeClass}">${(p.status || 'REQUESTED').toUpperCase()}</span>`;
+      statusTd.appendChild(badge(badgeClass, upper(p.status, 'requested')));
       tr.appendChild(statusTd);
 
       // Requested At
@@ -1337,7 +1395,7 @@ async function loadPayouts() {
         actionTd.appendChild(rejBtn);
       } else if (p.status === 'rejected' && p.rejection_reason) {
         actionTd.className = 'small';
-        actionTd.innerHTML = `<em>Reason: ${p.rejection_reason}</em>`;
+        actionTd.appendChild(el('em', '', `Reason: ${p.rejection_reason}`));
       } else {
         actionTd.textContent = '—';
       }
@@ -1476,12 +1534,13 @@ async function openTicketChat(ticket) {
   }
 
   const messagesContainer = document.getElementById('ticket-chat-messages');
-  messagesContainer.innerHTML = '<div class="muted small" style="text-align:center;padding:1rem;">Loading conversation history...</div>';
+  messagesContainer.textContent = '';
+  messagesContainer.appendChild(el('div', 'muted small chat-notice', 'Loading conversation history...'));
 
   // 1. Fetch channel history
   try {
     const res = await api(`/api/tickets/history?channel=ticket:${encodeURIComponent(ticket.ticket_id)}&limit=50`);
-    messagesContainer.innerHTML = '';
+    messagesContainer.textContent = '';
     if (res.ok) {
       const msgs = await res.json();
       if (Array.isArray(msgs) && msgs.length > 0) {
@@ -1490,11 +1549,12 @@ async function openTicketChat(ticket) {
           appendChatMessage(m);
         }
       } else {
-        messagesContainer.innerHTML = '<div class="muted small" style="text-align:center;padding:1rem;">No messages in this ticket yet.</div>';
+        messagesContainer.appendChild(el('div', 'muted small chat-notice', 'No messages in this ticket yet.'));
       }
     }
   } catch (err) {
-    messagesContainer.innerHTML = `<div class="error" style="text-align:center;padding:1rem;">Failed to load chat history: ${err.message}</div>`;
+    messagesContainer.textContent = '';
+    messagesContainer.appendChild(el('div', 'error chat-notice', `Failed to load chat history: ${err.message}`));
   }
 
   // 2. Connect WebSocket
@@ -1520,8 +1580,8 @@ async function openTicketChat(ticket) {
       try {
         const msg = JSON.parse(event.data);
         if (msg.channel === `ticket:${ticket.ticket_id}`) {
-          if (messagesContainer.querySelector('.muted') || messagesContainer.querySelector('.error')) {
-            messagesContainer.innerHTML = '';
+          if (messagesContainer.querySelector('.chat-notice')) {
+            messagesContainer.textContent = '';
           }
           appendChatMessage(msg);
         }
@@ -1579,10 +1639,7 @@ function appendChatMessage(msg) {
           const urlToken = new URL(msg.attachment_url, location.href).searchParams.get('token');
           if (urlToken) {
             const r = await api(`/api/chat/attachments/view?token=${encodeURIComponent(urlToken)}`);
-            if (r.ok) {
-              const b = await r.blob();
-              img.src = URL.createObjectURL(b);
-            }
+            if (r.ok) img.src = safeBlobUrl(await r.blob());
           }
         } catch (_) {}
       })();
@@ -1885,9 +1942,9 @@ async function openAttachment(signedUrl) {
       alert(`Attachment could not be loaded (HTTP ${res.status})`);
       return;
     }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
+    const url = safeBlobUrl(await res.blob());
     window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (err) {
     console.error('Failed to open attachment:', err);
     alert('Failed to open attachment: ' + (err.message || 'network error'));
@@ -1998,7 +2055,7 @@ function openUserDocsDialog(user) {
   hide(document.getElementById('user-docs-error'));
   show(document.getElementById('user-docs-reason-form'));
   hide(document.getElementById('user-docs-results'));
-  document.getElementById('user-docs-links').innerHTML = '';
+  document.getElementById('user-docs-links').textContent = '';
 
   dlg.showModal();
 }
@@ -2045,10 +2102,16 @@ async function retrieveUserDocs(user, reason) {
     show(document.getElementById('user-docs-results'));
 
     const statusBar = document.getElementById('user-docs-status-bar');
-    statusBar.innerHTML = `<strong>KYC Status:</strong> <span class="badge badge-${data.kyc_status || 'none'}">${(data.kyc_status || 'none').toUpperCase()}</span> &nbsp;|&nbsp; <strong>KYE Status:</strong> <span class="badge badge-${data.kye_status || 'none'}">${(data.kye_status || 'none').toUpperCase()}</span>`;
+    statusBar.textContent = '';
+    for (const [i, [label, status]] of [['KYC Status', data.kyc_status], ['KYE Status', data.kye_status]].entries()) {
+      if (i > 0) statusBar.appendChild(document.createTextNode(' | '));
+      statusBar.appendChild(el('strong', '', `${label}:`));
+      statusBar.appendChild(document.createTextNode(' '));
+      statusBar.appendChild(badge(verificationBadgeClass(status), upper(status, 'none')));
+    }
 
     const linksContainer = document.getElementById('user-docs-links');
-    linksContainer.innerHTML = '';
+    linksContainer.textContent = '';
 
     const slots = [
       ['ID Front', data.id_front_url],
