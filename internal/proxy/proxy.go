@@ -10,8 +10,10 @@ package proxy
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -20,6 +22,17 @@ import (
 )
 
 const reviewerTokenHeader = "X-Reviewer-Token"
+
+const (
+	// maxJSONBody caps every JSON POST body; the largest legitimate payload
+	// is a 1000-character reason plus ids.
+	maxJSONBody = 64 << 10
+	// maxUploadBody caps ticket attachment uploads: chat-service's 10 MB
+	// file limit plus multipart framing.
+	maxUploadBody = 10<<20 + 64<<10
+	// maxErrorBody bounds how much of an upstream error body is inspected.
+	maxErrorBody = 64 << 10
+)
 
 type ReviewerProxy struct {
 	internalServiceToken string
@@ -65,8 +78,8 @@ func (p *ReviewerProxy) forwardToService(w http.ResponseWriter, r *http.Request,
 	}
 
 	var bodyReader io.Reader
-	if r.Body != nil {
-		b, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1 MiB bound
+	if r.Body != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		b, err := io.ReadAll(io.LimitReader(r.Body, maxJSONBody))
 		if err != nil {
 			http.Error(w, `{"error":"failed to read request body"}`, http.StatusBadRequest)
 			return
@@ -78,7 +91,7 @@ func (p *ReviewerProxy) forwardToService(w http.ResponseWriter, r *http.Request,
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, baseURL+path, bodyReader)
 	if err != nil {
 		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized
-		log.Printf("[CONSOLE] failed to build upstream request for %s: %v", sanitizeLog(path), sanitizeLog(err.Error()))
+		log.Printf("[CONSOLE] failed to build upstream request for %s: %v", sanitizeLog(stripQuery(path)), upstreamErrText(err))
 		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 		return
 	}
@@ -90,20 +103,79 @@ func (p *ReviewerProxy) forwardToService(w http.ResponseWriter, r *http.Request,
 	resp, err := p.client.Do(req)
 	if err != nil {
 		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized
-		log.Printf("[CONSOLE] upstream call to %s failed: %v", sanitizeLog(path), sanitizeLog(err.Error()))
+		log.Printf("[CONSOLE] upstream call to %s failed: %v", sanitizeLog(stripQuery(path)), upstreamErrText(err))
 		http.Error(w, `{"error":"upstream unavailable"}`, http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
+	relayResponse(w, resp, path)
+}
 
+// relayResponse streams a successful upstream response through unchanged.
+// Error responses (>= 400) are reduced to the services' JSON error contract
+// ({"error", "message", "code", "request_id"}); anything else — plain-text
+// panics, HTML error pages, unexpected fields — becomes a generic message
+// with the same status, so upstream internals never reach the browser.
+func relayResponse(w http.ResponseWriter, resp *http.Response, path string) {
+	if resp.StatusCode >= http.StatusBadRequest {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		_, _ = w.Write(safeErrorBody(resp))
+		return
+	}
 	if ct := resp.Header.Get("Content-Type"); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
 	w.WriteHeader(resp.StatusCode)
 	if _, err := io.Copy(w, resp.Body); err != nil {
 		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized
-		log.Printf("[CONSOLE] failed to relay upstream response for %s: %v", sanitizeLog(path), sanitizeLog(err.Error()))
+		log.Printf("[CONSOLE] failed to relay upstream response for %s: %v", sanitizeLog(stripQuery(path)), upstreamErrText(err))
 	}
+}
+
+// upstreamError is the JSON error contract shared by saas-core services
+// (handlerutil.SafeError plus the "message" field some handlers add).
+type upstreamError struct {
+	Error     string `json:"error"`
+	Message   string `json:"message,omitempty"`
+	Code      string `json:"code,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+}
+
+func safeErrorBody(resp *http.Response) []byte {
+	generic := []byte(`{"error":"upstream error"}`)
+	mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if mediaType != "application/json" {
+		return generic
+	}
+	var e upstreamError
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxErrorBody)).Decode(&e); err != nil || e.Error == "" {
+		return generic
+	}
+	b, err := json.Marshal(e)
+	if err != nil {
+		return generic
+	}
+	return b
+}
+
+// decodeJSON decodes a bounded JSON request body, answering 413 when it
+// exceeds maxJSONBody and 400 when it is malformed.
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	if r.ContentLength > maxJSONBody {
+		http.Error(w, `{"error":"request body too large"}`, http.StatusRequestEntityTooLarge)
+		return false
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxJSONBody)).Decode(dst); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, `{"error":"request body too large"}`, http.StatusRequestEntityTooLarge)
+			return false
+		}
+		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+		return false
+	}
+	return true
 }
 
 // forwardMultipartToService relays multipart requests up to 10MB to an upstream service.
@@ -114,11 +186,15 @@ func (p *ReviewerProxy) forwardMultipartToService(w http.ResponseWriter, r *http
 		return
 	}
 
+	if r.ContentLength > maxUploadBody {
+		http.Error(w, `{"error":"attachment too large"}`, http.StatusRequestEntityTooLarge)
+		return
+	}
 	// #nosec G704 //nolint:gosec -- scheme and host come exclusively from internal config
-	req, err := http.NewRequestWithContext(r.Context(), r.Method, baseURL+path, io.LimitReader(r.Body, 10<<20))
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, baseURL+path, http.MaxBytesReader(w, r.Body, maxUploadBody))
 	if err != nil {
 		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized via sanitizeLog()
-		log.Printf("[CONSOLE] failed to build upstream multipart request for %s: %v", sanitizeLog(path), sanitizeLog(err.Error()))
+		log.Printf("[CONSOLE] failed to build upstream multipart request for %s: %v", sanitizeLog(stripQuery(path)), upstreamErrText(err))
 		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 		return
 	}
@@ -131,21 +207,38 @@ func (p *ReviewerProxy) forwardMultipartToService(w http.ResponseWriter, r *http
 	// #nosec G704 //nolint:gosec -- config-controlled host
 	resp, err := p.client.Do(req)
 	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, `{"error":"attachment too large"}`, http.StatusRequestEntityTooLarge)
+			return
+		}
 		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized via sanitizeLog()
-		log.Printf("[CONSOLE] upstream multipart call to %s failed: %v", sanitizeLog(path), sanitizeLog(err.Error()))
+		log.Printf("[CONSOLE] upstream multipart call to %s failed: %v", sanitizeLog(stripQuery(path)), upstreamErrText(err))
 		http.Error(w, `{"error":"upstream unavailable"}`, http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
+	relayResponse(w, resp, path)
+}
 
-	if ct := resp.Header.Get("Content-Type"); ct != "" {
-		w.Header().Set("Content-Type", ct)
+// upstreamErrText describes a transport error without its *url.Error
+// wrapper, whose text carries the full upstream URL including query-string
+// tokens (document view tokens, the chat socket's reviewer token).
+func upstreamErrText(err error) string {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		err = ue.Err
 	}
-	w.WriteHeader(resp.StatusCode)
-	if _, err := io.Copy(w, resp.Body); err != nil {
-		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized via sanitizeLog()
-		log.Printf("[CONSOLE] failed to relay upstream multipart response for %s: %v", sanitizeLog(path), sanitizeLog(err.Error()))
+	return sanitizeLog(err.Error())
+}
+
+// stripQuery drops the query string so tokens and audit reasons never reach
+// the log.
+func stripQuery(path string) string {
+	if i := strings.IndexByte(path, '?'); i >= 0 {
+		return path[:i]
 	}
+	return path
 }
 
 // sanitizeLog strips CR/LF so request-derived strings cannot forge log lines
@@ -191,9 +284,7 @@ func (p *ReviewerProxy) Review(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req reviewRequest
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
-	if err := dec.Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if req.UserID == "" {
@@ -304,9 +395,7 @@ func (p *ReviewerProxy) Suspend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req suspendRequest
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
-	if err := dec.Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if req.UserID == "" {
@@ -344,9 +433,7 @@ func (p *ReviewerProxy) Reactivate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req reactivateRequest
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
-	if err := dec.Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if req.UserID == "" {
@@ -394,9 +481,7 @@ func (p *ReviewerProxy) ResolveReconciliation(w http.ResponseWriter, r *http.Req
 	}
 
 	var req reconciliationResolveRequest
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
-	if err := dec.Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if req.JobID == "" {
@@ -452,9 +537,7 @@ func (p *ReviewerProxy) ActivateSubscription(w http.ResponseWriter, r *http.Requ
 	}
 
 	var req activateSubscriptionRequest
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
-	if err := dec.Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if req.TenantID == "" && req.SubscriptionID == "" {
@@ -485,9 +568,7 @@ func (p *ReviewerProxy) RevokeSubscription(w http.ResponseWriter, r *http.Reques
 	}
 
 	var req revokeSubscriptionRequest
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
-	if err := dec.Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if req.TenantID == "" && req.SubscriptionID == "" {
@@ -538,9 +619,7 @@ func (p *ReviewerProxy) RejectPayout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req rejectPayoutRequest
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
-	if err := dec.Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if strings.TrimSpace(req.PayoutID) == "" {
@@ -591,9 +670,7 @@ func (p *ReviewerProxy) ResolveTicket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req resolveTicketRequest
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
-	if err := dec.Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if req.TicketID == "" {
@@ -640,9 +717,7 @@ func (p *ReviewerProxy) AcceptTicket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req acceptTicketRequest
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
-	if err := dec.Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if strings.TrimSpace(req.TicketID) == "" {
@@ -712,8 +787,50 @@ func (p *ReviewerProxy) AttachmentView(w http.ResponseWriter, r *http.Request) {
 	p.forwardToService(w, r, p.chatServiceURL, "/chat/attachments/view?token="+url.QueryEscape(token))
 }
 
+// wsAuthProtocol is the WebSocket subprotocol the browser offers first; the
+// second offered value is the reviewer token. Browsers cannot set headers on
+// a WebSocket handshake, and a token in the page URL leaks into history and
+// access logs, so the token travels in Sec-WebSocket-Protocol instead.
+const wsAuthProtocol = "kyc-console-auth"
+
+// reviewerTokenFromSubprotocols extracts the token from
+// "Sec-WebSocket-Protocol: kyc-console-auth, <token>".
+func reviewerTokenFromSubprotocols(r *http.Request) string {
+	var offered []string
+	for _, h := range r.Header.Values("Sec-WebSocket-Protocol") {
+		for _, v := range strings.Split(h, ",") {
+			offered = append(offered, strings.TrimSpace(v))
+		}
+	}
+	if len(offered) != 2 || offered[0] != wsAuthProtocol || offered[1] == "" {
+		return ""
+	}
+	return offered[1]
+}
+
 // ChatWebSocket reverse-proxies WebSocket connections to chat-service.
+//
+// chat-service authenticates the socket only via GET /chat/ws?token=, so the
+// token taken from the subprotocol is put on the upstream URL here, server
+// side. Any other client-supplied query string is dropped.
+//
+// Deprecated fallback: a client that offers no subprotocol may still send
+// ?token= (saas-core's e2e suite does, tests/e2e ConnectConsoleWS). The
+// console UI never does; remove the fallback once that suite migrates.
 func (p *ReviewerProxy) ChatWebSocket(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	token := reviewerTokenFromSubprotocols(r)
+	viaSubprotocol := token != ""
+	if !viaSubprotocol && len(r.Header.Values("Sec-WebSocket-Protocol")) == 0 {
+		token = r.URL.Query().Get("token")
+	}
+	if token == "" {
+		http.Error(w, `{"error":"reviewer token required"}`, http.StatusUnauthorized)
+		return
+	}
 	target, err := url.Parse(p.chatServiceURL)
 	if err != nil {
 		http.Error(w, `{"error":"invalid chat service URL"}`, http.StatusInternalServerError)
@@ -727,7 +844,22 @@ func (p *ReviewerProxy) ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 	rp.Director = func(req *http.Request) {
 		origDirector(req)
 		req.URL.Path = "/chat/ws"
+		req.URL.RawPath = ""
+		req.URL.RawQuery = url.Values{"token": {token}}.Encode()
 		req.Host = target.Host
+		req.Header.Del("Sec-WebSocket-Protocol")
+	}
+	rp.ModifyResponse = func(resp *http.Response) error {
+		if viaSubprotocol && resp.StatusCode == http.StatusSwitchingProtocols {
+			// The browser fails the handshake unless one offered protocol is echoed.
+			resp.Header.Set("Sec-WebSocket-Protocol", wsAuthProtocol)
+		}
+		return nil
+	}
+	rp.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+		// #nosec G706 //nolint:gosec -- error text is unwrapped from *url.Error (no URL/token) and CR/LF-sanitized
+		log.Printf("[CONSOLE] chat websocket upstream failed: %v", upstreamErrText(err))
+		http.Error(w, `{"error":"upstream unavailable"}`, http.StatusBadGateway)
 	}
 	rp.ServeHTTP(w, r)
 }

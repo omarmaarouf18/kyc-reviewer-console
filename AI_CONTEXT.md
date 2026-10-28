@@ -34,10 +34,92 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
   All destructive and override operations enforce local input validation (mandatory reasons, 1–1000 characters) before forwarding to upstream services.
 - `cmd/server` — HTTP server with timeouts, CR/LF-sanitized logging, static UI serving, and route registration for all `/api/*` endpoints.
 - `web/` — 6-tab vanilla UI (`web/index.html`, `web/app.js`, `web/style.css`) with tab-scoped session auth, search toolbars, status filters, pagination controls, dynamic badge counters, and action dialog modals.
-- CI: `.github/workflows/ci.yml` (gofmt, build, vet, test, gosec);
+- CI: `.github/workflows/ci.yml` (gofmt, build, vet, test, web tests, gosec);
   `.github/workflows/contract-sync.yml` responding to saas-core's `reviewer-api-contract` repository_dispatch.
 
 ## Recent Changes
+
+### CONSOLE-SEC: stored-XSS fix and console hardening
+
+- **XSS rule (item 1)**: API data (names, emails, ids, notes, reasons, ticket
+  messages, file names, enums) reaches the DOM only through `textContent`,
+  via the `el()` / `badge()` / `detailRow()` helpers in `web/app.js`.
+  `innerHTML` remains only for static markup with no interpolation. Badge
+  classes come from fixed maps, never from API values. Documents and chat
+  attachments open from blob: URLs re-typed by `safeBlobUrl()`: only
+  images/PDF render inline, anything else (e.g. `text/html`) becomes a
+  download, because a blob: page would run in the console origin.
+- **Web tests run the real app**: `web/testdom.js` is a dependency-free DOM
+  that parses `web/index.html` and runs `web/app.js` in a `vm` context;
+  `web/xss_test.js` renders every table/dialog with
+  `<img src=x onerror=alert(1)>` payloads and asserts no element or `on*`
+  attribute was created. Run: `node --test web/*_test.js`.
+- **Security headers (item 2)**: `cmd/server/routes.go` (`newHandler`)
+  wraps every response with a strict CSP (`default-src 'self'; script-src
+  'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'`
+  plus `wss://<host>` — and `ws://<host>` on plain HTTP — for the chat
+  socket; `object-src 'none'; frame-ancestors 'none'; base-uri 'none';
+  form-action 'self'`), `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`, `Permissions-Policy` (camera, microphone,
+  geolocation off), `X-Frame-Options: DENY`, and `Cache-Control: no-store`
+  on `/api/*`. The Host header is validated before it is echoed into the
+  CSP. No inline script, handler or style attribute may be added to
+  `web/` (CSP blocks them). Static serving is an allow-list (`/`,
+  `/index.html`, `/app.js`, `/style.css`) so test files under `web/` are
+  never served. Tests: `cmd/server/routes_test.go`.
+- **Session hygiene (item 3)**: idle sign-out after `IDLE_TIMEOUT_MS`
+  (30 min, `web/app.js`) without pointer/keyboard activity, checked every
+  30 s and on page load (last activity is kept in sessionStorage so a
+  reload does not extend a stale session). Every 401 (all calls go through
+  `api()`, including attachment upload) and "Sign out" run the same
+  `logout()`: `sessionStorage.clear()`, chat socket closed, every
+  in-memory target/filter reset, rendered tables/dialogs/chat/inputs
+  emptied. The reviewer token is never in a URL: the chat socket offers
+  it as the second WebSocket subprotocol (`kyc-console-auth, <token>`);
+  `ChatWebSocket` takes it from there, drops any client query string and
+  builds the upstream `?token=` server-side (chat-service only accepts
+  the query — saas-core follow-up), and echoes `kyc-console-auth` on 101.
+  Deprecated fallback: a client offering no subprotocol may still send
+  `?token=` (saas-core `tests/e2e` `ConnectConsoleWS` does); remove it once
+  that suite dials with `Subprotocols: ["kyc-console-auth", token]`.
+  Upstream error logs no longer print `*url.Error` text or query strings
+  (`upstreamErrText`, `stripQuery`). Tests: `web/session_test.js`,
+  `internal/proxy/websocket_test.go`.
+- **Proxy hardening (item 4)**: every JSON POST body is capped at 64 KB
+  (`maxJSONBody`, `decodeJSON` → 413), ticket attachments at 10 MB +
+  framing (`maxUploadBody` → 413 instead of the old silent truncation);
+  GET bodies are no longer forwarded. Routes are one table
+  (`apiRoutes` in `cmd/server/routes.go`) with a per-route method
+  allow-list (405 + `Allow`). The unused `/admin/payouts` and
+  `/admin/payouts/reject` console aliases are gone (the UI calls
+  `/api/payouts*`; user-service's upstream paths are unchanged). Upstream
+  error responses (>= 400) are reduced to the JSON error contract
+  (`error`, `message`, `code`, `request_id`); any other body becomes
+  `{"error":"upstream error"}` with the same status. Tests:
+  `internal/proxy/hardening_test.go`, `cmd/server/routes_test.go`.
+- **UI fixes (item 5)**: the disputes table/dialog show only fields the
+  user-service queue item (`AdminReconciliationJobItem`) actually carries
+  — no pickup/dropoff address or category exist, so the "Job & Route" /
+  "Category" columns became "Job" / "Service"; dialog rows with no value
+  are omitted (the courier row appears only when `employee_id`, which is
+  `omitempty`, is present). Payout amounts are shown in EGP (were "$"),
+  and payout status badges/filter use saas-core's `requested`,
+  `approved`, `paid`, `rejected` (the UI had a non-existent `processed`).
+  CI now runs the web tests (`node --test web/*_test.js`, Node 24).
+  Tests: `web/ui_test.js`.
+- **Docs (item 6)**: README "Security" section (XSS rule, CSP, headers,
+  blob type allow-list, idle timeout, socket auth, proxy limits) and CI/CD
+  list (web tests, release.yml). Deploy: release.yml publishes
+  `ghcr.io/omarmaarouf18/kyc-reviewer-console:<sha>` on push to `main`; on
+  the VM set `KYC_CONSOLE_IMAGE_TAG=<sha>` (not `latest`) in
+  `/home/deploybot/.env` and redeploy only that service.
+- **Saas-core follow-ups** (not done here): chat-service `/chat/ws` should
+  accept the token from a header so the console can stop putting it in
+  the upstream query; saas-core e2e `ConnectConsoleWS` should dial with
+  the `kyc-console-auth` subprotocol so the console's deprecated `?token=`
+  fallback can be removed; the reconciliation queue item lacks
+  pickup/dropoff address, category and route points if the console should
+  show them.
 
 ### KYC User Documents Admin Access & Support Ticket File Attachments
 
@@ -83,6 +165,11 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
   - All 5 routes (`/api/queue`, `/api/accounts`, `/api/reconciliation/queue`, `/api/subscriptions`, `/api/tickets`) return `200 OK` on production stack (`quickdelivery-vm`).
 
 ## Standing Rules
+
+- API data never goes into `innerHTML` / template-literal HTML; use
+  `textContent` via `el()` / `badge()` / `detailRow()` (README "Security").
+- No inline script, event-handler attribute or `style="..."` in `web/` — the
+  CSP blocks them.
 
 - Every code change updates this file in the same commit.
 - The internal service token must never be logged, embedded in the UI bundle, or sent anywhere except downstream internal microservices.

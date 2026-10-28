@@ -18,8 +18,23 @@ No external consumer application can reach administrative endpoints directly —
 - **Two-Token Contract**: Reviewers authenticate with their `X-Reviewer-Token` (onboarded server-side via saas-core's `onboard-reviewer` CLI; hashed at rest in `auth_db.reviewers`). The internal service token never reaches the browser.
 - **No Self-Service Admin Accounts**: Reviewer accounts are created exclusively via manual server-side CLI operations (`cmd/onboard-reviewer`). There is no public registration or self-service signup.
 - **Single Permission Level**: All authenticated reviewers have uniform access across all 6 console tabs (no complex nested RBAC or sub-role splits).
-- **Tab-Scoped Session**: The reviewer token is held in browser `sessionStorage` (closing the tab signs out).
+- **Tab-Scoped Session**: The reviewer token is held in browser `sessionStorage` (closing the tab signs out), with a 30-minute idle sign-out (see [Security](#security)).
 - **Mandatory Reasons**: All destructive and override mutations (KYC rejections, account suspensions, dispute overrides, subscription revocations, ticket resolutions, payout rejections) strictly enforce mandatory reasons (1–1000 characters) both in the UI and server-side.
+
+## Security
+
+Browser-side and proxy-side hardening (CONSOLE-SEC). Keep these rules when changing the UI or the proxy.
+
+- **XSS rule — never interpolate API data into HTML.** Anything that comes from an API response (names, emails, ids, addresses, notes, reasons, ticket messages, file names, status enums) reaches the DOM only through `textContent` — in `web/app.js` use `el(tag, className, text)`, `badge()` and `detailRow()`. `innerHTML` is allowed only for static markup with no `${...}`. CSS classes are picked from fixed maps, never built from API values. `web/xss_test.js` renders every table and dialog with `<img src=x onerror=alert(1)>` payloads and fails if any element or `on*` attribute is created.
+- **Content-Security-Policy** on every response (`cmd/server/routes.go`):
+  `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self' wss://<host>; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`
+  (`ws://<host>` is added on plain HTTP for local dev). No inline `<script>`, `on*=` handler or `style="..."` attribute is possible — put code in `app.js` and styles in `style.css`.
+- **Other headers**: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `X-Frame-Options: DENY`, and `Cache-Control: no-store` on `/api/*`. Only `/`, `/index.html`, `/app.js` and `/style.css` are served from `web/`.
+- **Documents & attachments** open from `blob:` URLs, which run in the console origin, so `safeBlobUrl()` renders only JPEG/PNG/GIF/WebP/PDF inline; any other type is handed over as a download.
+- **Session**: idle sign-out after 30 minutes without pointer/keyboard activity (`IDLE_TIMEOUT_MS` in `web/app.js`). A 401 from any call, the idle timeout and "Sign out" all clear `sessionStorage`, close the chat socket and remove rendered reviewer data. The reviewer token is never put in a URL or logged: the chat WebSocket offers it as a subprotocol (`kyc-console-auth, <token>`) and the proxy adds the `?token=` that chat-service requires server-side.
+- **Proxy limits**: JSON POST bodies ≤ 64 KB, ticket attachments ≤ 10 MB (413 above); each route accepts only its listed methods (405 + `Allow`); upstream error bodies are reduced to the `{"error","message","code","request_id"}` contract, anything else becomes `{"error":"upstream error"}`.
+
+Tests: `go test ./... -count=1` and `node --test web/*_test.js` (no npm install needed).
 
 ## Setup
 
@@ -84,7 +99,8 @@ Deploy the container on the same compose network (`saas-net`) so downstream serv
 
 ## CI/CD
 
-- `.github/workflows/ci.yml` — gofmt, build, vet, unit tests, and gosec on every push/PR.
+- `.github/workflows/ci.yml` — gofmt, build, vet, unit tests, web tests (`node --test web/*_test.js`), and gosec on every push/PR.
+- `.github/workflows/release.yml` — on push to `main`, builds and publishes `ghcr.io/omarmaarouf18/kyc-reviewer-console` tagged with the commit SHA and `latest`.
 - `.github/workflows/contract-sync.yml` — runs contract/integration tests when saas-core fires a `reviewer-api-contract` repository_dispatch on pushes touching reviewer endpoint surfaces.
 
 ## Repository Relationship to saas-core

@@ -52,42 +52,10 @@ func main() {
 
 	p := proxy.NewWithServices(cfg.InternalServiceToken, cfg.AuthServiceURL, cfg.UserServiceURL, cfg.ChatServiceURL, client)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
-	mux.HandleFunc("/api/queue", p.Queue)
-	mux.HandleFunc("/api/review", p.Review)
-	mux.HandleFunc("/api/documents/view", p.DocumentView)
-	mux.HandleFunc("/api/documents/user", p.UserDocuments)
-	mux.HandleFunc("/api/accounts", p.Accounts)
-	mux.HandleFunc("/api/accounts/suspend", p.Suspend)
-	mux.HandleFunc("/api/accounts/reactivate", p.Reactivate)
-	mux.HandleFunc("/api/reconciliation/queue", p.ReconciliationQueue)
-	mux.HandleFunc("/api/reconciliation/resolve", p.ResolveReconciliation)
-	mux.HandleFunc("/api/subscriptions", p.Subscriptions)
-	mux.HandleFunc("/api/subscriptions/activate", p.ActivateSubscription)
-	mux.HandleFunc("/api/subscriptions/revoke", p.RevokeSubscription)
-	mux.HandleFunc("/api/payouts", p.Payouts)
-	mux.HandleFunc("/admin/payouts", p.Payouts)
-	mux.HandleFunc("/api/payouts/reject", p.RejectPayout)
-	mux.HandleFunc("/admin/payouts/reject", p.RejectPayout)
-	mux.HandleFunc("/api/me", p.Me)
-	mux.HandleFunc("/api/tickets", p.Tickets)
-	mux.HandleFunc("/api/tickets/accept", p.AcceptTicket)
-	mux.HandleFunc("/api/tickets/history", p.TicketsHistory)
-	mux.HandleFunc("/api/chat/history", p.TicketsHistory)
-	mux.HandleFunc("/api/tickets/resolve", p.ResolveTicket)
-	mux.HandleFunc("/api/tickets/attachment", p.TicketAttachment)
-	mux.HandleFunc("/api/chat/attachments/view", p.AttachmentView)
-	mux.HandleFunc("/api/chat/ws", p.ChatWebSocket)
-	mux.Handle("/", http.FileServer(http.Dir("web")))
-
 	addr := ":" + cfg.Port
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           logRequests(mux),
+		Handler:           logRequests(newHandler(p, "web")),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
