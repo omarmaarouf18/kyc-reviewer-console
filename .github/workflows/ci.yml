@@ -35,6 +35,14 @@ jobs:
       - name: Test
         run: go test ./... -count=1
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Web tests
+        run: node --test web/*_test.js
+
       - name: Security scan (gosec)
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@latest

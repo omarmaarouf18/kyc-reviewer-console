@@ -754,18 +754,21 @@ async function loadReconciliation() {
     for (const d of disputes) {
       const tr = document.createElement('tr');
 
-      // Job & Route
+      // Job (the user-service queue item carries no addresses or category)
       const jobTd = document.createElement('td');
-      jobTd.innerHTML = `<strong></strong><br><span class="muted small route-text"></span><br><code class="id-tag"></code>`;
-      jobTd.querySelector('strong').textContent = `Job #${d.id.slice(-8)}`;
-      jobTd.querySelector('.route-text').textContent = `${d.pickup_address || 'Pickup'} &rarr; ${d.dropoff_address || 'Dropoff'}`;
-      jobTd.querySelector('.id-tag').textContent = d.id;
+      jobTd.appendChild(el('strong', '', `Job #${String(d.id).slice(-8)}`));
+      jobTd.appendChild(el('br'));
+      if (d.created_at) {
+        jobTd.appendChild(el('span', 'muted small', new Date(d.created_at).toLocaleString()));
+        jobTd.appendChild(el('br'));
+      }
+      jobTd.appendChild(el('code', 'id-tag', d.id));
       tr.appendChild(jobTd);
 
-      // Category
-      const catTd = document.createElement('td');
-      catTd.textContent = capitalize(d.category || 'delivery');
-      tr.appendChild(catTd);
+      // Service
+      const serviceTd = document.createElement('td');
+      serviceTd.appendChild(d.service_id ? el('code', '', d.service_id) : el('span', 'muted', '—'));
+      tr.appendChild(serviceTd);
 
       // Distance Discrepancy
       const distTd = document.createElement('td');
@@ -837,14 +840,27 @@ function openResolveDisputeDialog(dispute) {
   const actual = num(dispute.actual_distance);
   const ratio = booked > 0 ? ((actual / booked) * 100).toFixed(0) : '0';
   detailsEl.textContent = '';
-  detailsEl.appendChild(detailRow('Category', capitalize(String(dispute.category || 'delivery'))));
-  detailsEl.appendChild(detailRow('Route', `${dispute.pickup_address} → ${dispute.dropoff_address}`));
-  detailsEl.appendChild(detailRow('Booked vs Tracked', `${booked.toFixed(1)} km vs ${actual.toFixed(1)} km (${ratio}%)`));
-  detailsEl.appendChild(detailRow('Locked Escrow', `${num(dispute.locked_escrow_amount).toFixed(2)} EGP`));
-  detailsEl.appendChild(detailRow('Tenant Owner', dispute.owner_id, 'code'));
-  detailsEl.appendChild(detailRow('Assigned Courier', dispute.employee_id || '(none)', 'code'));
-  detailsEl.appendChild(detailRow('Customer', dispute.customer_id, 'code'));
-  detailsEl.appendChild(detailRow('Flag Note', dispute.reconciliation_reason || dispute.reconciliation_note || 'under_distance_mismatch', 'em'));
+  // Only fields the user-service queue item actually carries are shown; a
+  // row is omitted when its value is absent rather than rendered as
+  // "undefined" or a made-up default.
+  const rows = [
+    ['Status', dispute.status, 'code'],
+    ['Service', dispute.service_id, 'code'],
+    ['Booked vs Tracked', `${booked.toFixed(1)} km vs ${actual.toFixed(1)} km (${ratio}%), ${num(dispute.waypoints_count)} waypoints`],
+    ['Locked Escrow', `${num(dispute.locked_escrow_amount).toFixed(2)} EGP`],
+    ['Actual Amount', dispute.actual_amount ? `${num(dispute.actual_amount).toFixed(2)} EGP` : null],
+    ['Payment Method', dispute.payment_method ? upper(dispute.payment_method) : null],
+    ['Tenant Owner', dispute.owner_id, 'code'],
+    ['Assigned Courier', dispute.employee_id, 'code'],
+    ['Customer', dispute.customer_id, 'code'],
+    ['Flag Reason', dispute.reconciliation_reason, 'em'],
+    ['Flag Note', dispute.reconciliation_note, 'em'],
+    ['Created', dispute.created_at ? new Date(dispute.created_at).toLocaleString() : null, 'span'],
+    ['Updated', dispute.updated_at ? new Date(dispute.updated_at).toLocaleString() : null, 'span'],
+  ];
+  for (const [label, value, tag] of rows) {
+    if (value !== undefined && value !== null && value !== '') detailsEl.appendChild(detailRow(label, value, tag));
+  }
 
   document.getElementById('resolve-dispute-reason').value = '';
   hide(document.getElementById('resolve-dispute-error'));
@@ -1438,7 +1454,7 @@ async function loadPayouts() {
 
       // Amount
       const amountTd = document.createElement('td');
-      amountTd.appendChild(el('strong', '', `$${num(p.amount).toFixed(2)}`));
+      amountTd.appendChild(el('strong', '', `${num(p.amount).toFixed(2)} EGP`));
       tr.appendChild(amountTd);
 
       // Method
@@ -1449,7 +1465,7 @@ async function loadPayouts() {
       // Status
       const statusTd = document.createElement('td');
       let badgeClass = 'badge-pending';
-      if (p.status === 'processed') badgeClass = 'badge-paid';
+      if (p.status === 'paid' || p.status === 'approved') badgeClass = 'badge-paid';
       else if (p.status === 'rejected') badgeClass = 'badge-cancelled';
       statusTd.appendChild(badge(badgeClass, upper(p.status, 'requested')));
       tr.appendChild(statusTd);
@@ -1498,7 +1514,7 @@ async function loadPayouts() {
 function openRejectPayoutDialog(payout) {
   activeRejectPayout = payout;
   document.getElementById('reject-payout-target').textContent =
-    `Payout ${payout.id} • Tenant ${payout.tenant_id} • $${Number(payout.amount || 0).toFixed(2)}`;
+    `Payout ${payout.id} • Tenant ${payout.tenant_id} • ${num(payout.amount).toFixed(2)} EGP`;
   document.getElementById('reject-payout-reason').value = '';
   hide(document.getElementById('reject-payout-error'));
   document.getElementById('reject-payout-modal').showModal();

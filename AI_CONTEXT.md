@@ -97,6 +97,16 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
   (`error`, `message`, `code`, `request_id`); any other body becomes
   `{"error":"upstream error"}` with the same status. Tests:
   `internal/proxy/hardening_test.go`, `cmd/server/routes_test.go`.
+- **UI fixes (item 5)**: the disputes table/dialog show only fields the
+  user-service queue item (`AdminReconciliationJobItem`) actually carries
+  — no pickup/dropoff address or category exist, so the "Job & Route" /
+  "Category" columns became "Job" / "Service"; dialog rows with no value
+  are omitted (the courier row appears only when `employee_id`, which is
+  `omitempty`, is present). Payout amounts are shown in EGP (were "$"),
+  and payout status badges/filter use saas-core's `requested`,
+  `approved`, `paid`, `rejected` (the UI had a non-existent `processed`).
+  CI now runs the web tests (`node --test web/*_test.js`, Node 24).
+  Tests: `web/ui_test.js`.
 
 ### KYC User Documents Admin Access & Support Ticket File Attachments
 
