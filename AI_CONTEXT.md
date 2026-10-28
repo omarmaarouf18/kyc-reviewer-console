@@ -39,6 +39,22 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
 
 ## Recent Changes
 
+### CONSOLE-SEC: stored-XSS fix and console hardening
+
+- **XSS rule (item 1)**: API data (names, emails, ids, notes, reasons, ticket
+  messages, file names, enums) reaches the DOM only through `textContent`,
+  via the `el()` / `badge()` / `detailRow()` helpers in `web/app.js`.
+  `innerHTML` remains only for static markup with no interpolation. Badge
+  classes come from fixed maps, never from API values. Documents and chat
+  attachments open from blob: URLs re-typed by `safeBlobUrl()`: only
+  images/PDF render inline, anything else (e.g. `text/html`) becomes a
+  download, because a blob: page would run in the console origin.
+- **Web tests run the real app**: `web/testdom.js` is a dependency-free DOM
+  that parses `web/index.html` and runs `web/app.js` in a `vm` context;
+  `web/xss_test.js` renders every table/dialog with
+  `<img src=x onerror=alert(1)>` payloads and asserts no element or `on*`
+  attribute was created. Run: `node --test web/*_test.js`.
+
 ### KYC User Documents Admin Access & Support Ticket File Attachments
 
 - **Feature Summary**:
