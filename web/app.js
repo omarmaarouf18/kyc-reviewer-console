@@ -4,6 +4,18 @@
 // on every console API call. The console injects the internal service token
 // server-side; it is never visible here (ADR-0021 / ADR-0022).
 const tokenKey = 'reviewer_token';
+const lastActivityKey = 'reviewer_last_activity';
+
+// Idle sign-out: a session with no pointer/keyboard activity for this long is
+// signed out (checked every IDLE_CHECK_MS, and on page load).
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const IDLE_CHECK_MS = 30 * 1000;
+let idleTimer = null;
+
+// The chat socket cannot carry headers, so the reviewer token rides in the
+// WebSocket subprotocol list (never the URL); the console proxy moves it
+// server-side. See ChatWebSocket in internal/proxy.
+const wsAuthProtocol = 'kyc-console-auth';
 
 let activeTab = 'queue';
 let currentReviewer = null;
@@ -130,15 +142,78 @@ function safeBlobUrl(blob) {
   return URL.createObjectURL(new Blob([blob], { type }));
 }
 
+// logout ends the session from any path (Sign out, a 401, idle timeout):
+// the token, every sessionStorage key and all in-memory reviewer data go.
 function logout(message) {
-  sessionStorage.removeItem(tokenKey);
+  sessionStorage.clear();
+  stopIdleWatch();
+  if (activeChatWs) {
+    try { activeChatWs.close(); } catch (_) {}
+  }
+  activeChatWs = null;
+  activeChatTicket = null;
+  currentReviewer = null;
+  dialogUser = null;
+  targetAccount = null;
+  targetDispute = null;
+  targetSub = null;
+  targetTicket = null;
+  activeRejectPayout = null;
+  currentUserDocsTarget = null;
+  lastUserDocsReason = '';
+  Object.assign(accountsState, { page: 1, search: '', role: '', status: '', total: 0 });
+  Object.assign(reconciliationState, { page: 1, total: 0 });
+  Object.assign(subscriptionsState, { page: 1, search: '', status: '', total: 0 });
+  Object.assign(ticketsState, { page: 1, search: '', status: '', total: 0 });
+  Object.assign(payoutsState, { page: 1, status: '', total: 0 });
+
+  // Rendered reviewer data must not survive the session in the DOM.
+  for (const tbody of document.querySelectorAll('table tbody')) tbody.textContent = '';
+  for (const dlg of document.querySelectorAll('dialog')) dlg.close();
+  for (const id of ['ticket-chat-messages', 'resolve-dispute-details', 'resolve-ticket-details', 'user-docs-links', 'user-docs-status-bar']) {
+    const node = document.getElementById(id);
+    if (node) node.textContent = '';
+  }
+  for (const input of document.querySelectorAll('input[type="text"], input[type="password"], textarea')) input.value = '';
+  for (const b of document.querySelectorAll('.pill')) b.textContent = '0';
+  hide(document.getElementById('ticket-chat-card'));
+
   hide(document.getElementById('app-view'));
   show(document.getElementById('login-view'));
+  hide(document.getElementById('login-error'));
   if (message) {
     const err = document.getElementById('login-error');
     err.textContent = message;
     show(err);
   }
+}
+
+function markActivity() {
+  if (sessionStorage.getItem(tokenKey)) sessionStorage.setItem(lastActivityKey, String(Date.now()));
+}
+
+// checkIdle signs out when the last recorded activity is older than
+// IDLE_TIMEOUT_MS. Returns true if it did.
+function checkIdle(now = Date.now()) {
+  if (!sessionStorage.getItem(tokenKey)) return false;
+  const last = Number(sessionStorage.getItem(lastActivityKey)) || 0;
+  if (now - last < IDLE_TIMEOUT_MS) return false;
+  logout('Signed out after 30 minutes of inactivity.');
+  return true;
+}
+
+function startIdleWatch() {
+  stopIdleWatch();
+  idleTimer = setInterval(checkIdle, IDLE_CHECK_MS);
+}
+
+function stopIdleWatch() {
+  if (idleTimer) clearInterval(idleTimer);
+  idleTimer = null;
+}
+
+for (const type of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
+  window.addEventListener(type, markActivity, { passive: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -1565,10 +1640,10 @@ async function openTicketChat(ticket) {
 
   const token = sessionStorage.getItem(tokenKey) || '';
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${proto}//${location.host}/api/chat/ws?token=${encodeURIComponent(token)}`;
+  const wsUrl = `${proto}//${location.host}/api/chat/ws`;
 
   try {
-    const ws = new WebSocket(wsUrl);
+    const ws = new WebSocket(wsUrl, [wsAuthProtocol, token]);
     activeChatWs = ws;
     ws.onopen = () => {
       ws.send(JSON.stringify({
@@ -1713,9 +1788,12 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   if (!tok) return;
 
   sessionStorage.setItem(tokenKey, tok);
+  document.getElementById('token').value = '';
   try {
     const res = await api('/api/queue');
-    if (!res.ok) throw new Error(res.status === 401 ? null : `HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    markActivity();
+    startIdleWatch();
     hide(document.getElementById('login-view'));
     hide(document.getElementById('login-error'));
     show(document.getElementById('app-view'));
@@ -1723,7 +1801,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     switchTab('queue');
     refreshBadgeCounts();
   } catch (err) {
-    sessionStorage.removeItem(tokenKey);
+    sessionStorage.clear();
     const el = document.getElementById('login-error');
     el.textContent = err.message === 'unauthorized'
       ? 'Invalid reviewer token.' : `Sign-in failed: ${err.message}`;
@@ -1957,12 +2035,9 @@ async function sendTicketAttachment(ticketId, file, content) {
   if (content) {
     formData.append('content', content);
   }
-  const token = sessionStorage.getItem(tokenKey);
-  const res = await fetch(`/api/tickets/attachment?ticket_id=${encodeURIComponent(ticketId)}`, {
+  // Through api() so a 401 here ends the session like every other call.
+  const res = await api(`/api/tickets/attachment?ticket_id=${encodeURIComponent(ticketId)}`, {
     method: 'POST',
-    headers: {
-      'X-Reviewer-Token': token,
-    },
     body: formData,
   });
   if (!res.ok) {
@@ -2020,7 +2095,7 @@ if (ticketChatForm) {
         hide(filePreview);
         input.value = '';
       } catch (err) {
-        alert('Failed to upload attachment: ' + err.message);
+        if (err.message !== 'unauthorized') alert('Failed to upload attachment: ' + err.message);
       } finally {
         sendBtn.disabled = false;
         sendBtn.textContent = 'Send';
@@ -2191,7 +2266,8 @@ if (chatCloseBtn) {
 // Bootstrap session on reload if already signed in
 // ---------------------------------------------------------------------------
 const existingSessionToken = sessionStorage.getItem(tokenKey);
-if (existingSessionToken) {
+if (existingSessionToken && !checkIdle()) {
+  startIdleWatch();
   hide(document.getElementById('login-view'));
   hide(document.getElementById('login-error'));
   show(document.getElementById('app-view'));

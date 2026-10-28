@@ -10,6 +10,7 @@ package proxy
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -78,7 +79,7 @@ func (p *ReviewerProxy) forwardToService(w http.ResponseWriter, r *http.Request,
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, baseURL+path, bodyReader)
 	if err != nil {
 		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized
-		log.Printf("[CONSOLE] failed to build upstream request for %s: %v", sanitizeLog(path), sanitizeLog(err.Error()))
+		log.Printf("[CONSOLE] failed to build upstream request for %s: %v", sanitizeLog(stripQuery(path)), upstreamErrText(err))
 		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 		return
 	}
@@ -90,7 +91,7 @@ func (p *ReviewerProxy) forwardToService(w http.ResponseWriter, r *http.Request,
 	resp, err := p.client.Do(req)
 	if err != nil {
 		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized
-		log.Printf("[CONSOLE] upstream call to %s failed: %v", sanitizeLog(path), sanitizeLog(err.Error()))
+		log.Printf("[CONSOLE] upstream call to %s failed: %v", sanitizeLog(stripQuery(path)), upstreamErrText(err))
 		http.Error(w, `{"error":"upstream unavailable"}`, http.StatusBadGateway)
 		return
 	}
@@ -102,7 +103,7 @@ func (p *ReviewerProxy) forwardToService(w http.ResponseWriter, r *http.Request,
 	w.WriteHeader(resp.StatusCode)
 	if _, err := io.Copy(w, resp.Body); err != nil {
 		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized
-		log.Printf("[CONSOLE] failed to relay upstream response for %s: %v", sanitizeLog(path), sanitizeLog(err.Error()))
+		log.Printf("[CONSOLE] failed to relay upstream response for %s: %v", sanitizeLog(stripQuery(path)), upstreamErrText(err))
 	}
 }
 
@@ -118,7 +119,7 @@ func (p *ReviewerProxy) forwardMultipartToService(w http.ResponseWriter, r *http
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, baseURL+path, io.LimitReader(r.Body, 10<<20))
 	if err != nil {
 		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized via sanitizeLog()
-		log.Printf("[CONSOLE] failed to build upstream multipart request for %s: %v", sanitizeLog(path), sanitizeLog(err.Error()))
+		log.Printf("[CONSOLE] failed to build upstream multipart request for %s: %v", sanitizeLog(stripQuery(path)), upstreamErrText(err))
 		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 		return
 	}
@@ -132,7 +133,7 @@ func (p *ReviewerProxy) forwardMultipartToService(w http.ResponseWriter, r *http
 	resp, err := p.client.Do(req)
 	if err != nil {
 		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized via sanitizeLog()
-		log.Printf("[CONSOLE] upstream multipart call to %s failed: %v", sanitizeLog(path), sanitizeLog(err.Error()))
+		log.Printf("[CONSOLE] upstream multipart call to %s failed: %v", sanitizeLog(stripQuery(path)), upstreamErrText(err))
 		http.Error(w, `{"error":"upstream unavailable"}`, http.StatusBadGateway)
 		return
 	}
@@ -144,8 +145,28 @@ func (p *ReviewerProxy) forwardMultipartToService(w http.ResponseWriter, r *http
 	w.WriteHeader(resp.StatusCode)
 	if _, err := io.Copy(w, resp.Body); err != nil {
 		// #nosec G706 //nolint:gosec -- path is a handler-defined constant and err text is sanitized via sanitizeLog()
-		log.Printf("[CONSOLE] failed to relay upstream multipart response for %s: %v", sanitizeLog(path), sanitizeLog(err.Error()))
+		log.Printf("[CONSOLE] failed to relay upstream multipart response for %s: %v", sanitizeLog(stripQuery(path)), upstreamErrText(err))
 	}
+}
+
+// upstreamErrText describes a transport error without its *url.Error
+// wrapper, whose text carries the full upstream URL including query-string
+// tokens (document view tokens, the chat socket's reviewer token).
+func upstreamErrText(err error) string {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		err = ue.Err
+	}
+	return sanitizeLog(err.Error())
+}
+
+// stripQuery drops the query string so tokens and audit reasons never reach
+// the log.
+func stripQuery(path string) string {
+	if i := strings.IndexByte(path, '?'); i >= 0 {
+		return path[:i]
+	}
+	return path
 }
 
 // sanitizeLog strips CR/LF so request-derived strings cannot forge log lines
@@ -712,8 +733,42 @@ func (p *ReviewerProxy) AttachmentView(w http.ResponseWriter, r *http.Request) {
 	p.forwardToService(w, r, p.chatServiceURL, "/chat/attachments/view?token="+url.QueryEscape(token))
 }
 
+// wsAuthProtocol is the WebSocket subprotocol the browser offers first; the
+// second offered value is the reviewer token. Browsers cannot set headers on
+// a WebSocket handshake, and a token in the page URL leaks into history and
+// access logs, so the token travels in Sec-WebSocket-Protocol instead.
+const wsAuthProtocol = "kyc-console-auth"
+
+// reviewerTokenFromSubprotocols extracts the token from
+// "Sec-WebSocket-Protocol: kyc-console-auth, <token>".
+func reviewerTokenFromSubprotocols(r *http.Request) string {
+	var offered []string
+	for _, h := range r.Header.Values("Sec-WebSocket-Protocol") {
+		for _, v := range strings.Split(h, ",") {
+			offered = append(offered, strings.TrimSpace(v))
+		}
+	}
+	if len(offered) != 2 || offered[0] != wsAuthProtocol || offered[1] == "" {
+		return ""
+	}
+	return offered[1]
+}
+
 // ChatWebSocket reverse-proxies WebSocket connections to chat-service.
+//
+// chat-service authenticates the socket only via GET /chat/ws?token=, so the
+// token taken from the subprotocol is put on the upstream URL here, server
+// side. Any client-supplied query string is dropped.
 func (p *ReviewerProxy) ChatWebSocket(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	token := reviewerTokenFromSubprotocols(r)
+	if token == "" {
+		http.Error(w, `{"error":"reviewer token required"}`, http.StatusUnauthorized)
+		return
+	}
 	target, err := url.Parse(p.chatServiceURL)
 	if err != nil {
 		http.Error(w, `{"error":"invalid chat service URL"}`, http.StatusInternalServerError)
@@ -727,7 +782,22 @@ func (p *ReviewerProxy) ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 	rp.Director = func(req *http.Request) {
 		origDirector(req)
 		req.URL.Path = "/chat/ws"
+		req.URL.RawPath = ""
+		req.URL.RawQuery = url.Values{"token": {token}}.Encode()
 		req.Host = target.Host
+		req.Header.Del("Sec-WebSocket-Protocol")
+	}
+	rp.ModifyResponse = func(resp *http.Response) error {
+		if resp.StatusCode == http.StatusSwitchingProtocols {
+			// The browser fails the handshake unless one offered protocol is echoed.
+			resp.Header.Set("Sec-WebSocket-Protocol", wsAuthProtocol)
+		}
+		return nil
+	}
+	rp.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+		// #nosec G706 //nolint:gosec -- error text is unwrapped from *url.Error (no URL/token) and CR/LF-sanitized
+		log.Printf("[CONSOLE] chat websocket upstream failed: %v", upstreamErrText(err))
+		http.Error(w, `{"error":"upstream unavailable"}`, http.StatusBadGateway)
 	}
 	rp.ServeHTTP(w, r)
 }

@@ -67,6 +67,21 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
   `web/` (CSP blocks them). Static serving is an allow-list (`/`,
   `/index.html`, `/app.js`, `/style.css`) so test files under `web/` are
   never served. Tests: `cmd/server/routes_test.go`.
+- **Session hygiene (item 3)**: idle sign-out after `IDLE_TIMEOUT_MS`
+  (30 min, `web/app.js`) without pointer/keyboard activity, checked every
+  30 s and on page load (last activity is kept in sessionStorage so a
+  reload does not extend a stale session). Every 401 (all calls go through
+  `api()`, including attachment upload) and "Sign out" run the same
+  `logout()`: `sessionStorage.clear()`, chat socket closed, every
+  in-memory target/filter reset, rendered tables/dialogs/chat/inputs
+  emptied. The reviewer token is never in a URL: the chat socket offers
+  it as the second WebSocket subprotocol (`kyc-console-auth, <token>`);
+  `ChatWebSocket` takes it from there, drops any client query string and
+  builds the upstream `?token=` server-side (chat-service only accepts
+  the query — saas-core follow-up), and echoes `kyc-console-auth` on 101.
+  Upstream error logs no longer print `*url.Error` text or query strings
+  (`upstreamErrText`, `stripQuery`). Tests: `web/session_test.js`,
+  `internal/proxy/websocket_test.go`.
 
 ### KYC User Documents Admin Access & Support Ticket File Attachments
 
