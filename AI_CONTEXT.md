@@ -85,6 +85,18 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
   Upstream error logs no longer print `*url.Error` text or query strings
   (`upstreamErrText`, `stripQuery`). Tests: `web/session_test.js`,
   `internal/proxy/websocket_test.go`.
+- **Proxy hardening (item 4)**: every JSON POST body is capped at 64 KB
+  (`maxJSONBody`, `decodeJSON` → 413), ticket attachments at 10 MB +
+  framing (`maxUploadBody` → 413 instead of the old silent truncation);
+  GET bodies are no longer forwarded. Routes are one table
+  (`apiRoutes` in `cmd/server/routes.go`) with a per-route method
+  allow-list (405 + `Allow`). The unused `/admin/payouts` and
+  `/admin/payouts/reject` console aliases are gone (the UI calls
+  `/api/payouts*`; user-service's upstream paths are unchanged). Upstream
+  error responses (>= 400) are reduced to the JSON error contract
+  (`error`, `message`, `code`, `request_id`); any other body becomes
+  `{"error":"upstream error"}` with the same status. Tests:
+  `internal/proxy/hardening_test.go`, `cmd/server/routes_test.go`.
 
 ### KYC User Documents Admin Access & Support Ticket File Attachments
 

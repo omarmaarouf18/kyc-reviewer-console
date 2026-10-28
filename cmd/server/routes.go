@@ -4,46 +4,76 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/omarmaarouf18/kyc-reviewer-console/internal/proxy"
 )
 
+// route is one API endpoint and the only methods it accepts.
+type route struct {
+	path    string
+	methods []string
+	handler http.HandlerFunc
+}
+
+func apiRoutes(p *proxy.ReviewerProxy) []route {
+	get := []string{http.MethodGet}
+	post := []string{http.MethodPost}
+	return []route{
+		{"/api/queue", get, p.Queue},
+		{"/api/review", post, p.Review},
+		{"/api/documents/view", get, p.DocumentView},
+		{"/api/documents/user", get, p.UserDocuments},
+		{"/api/accounts", get, p.Accounts},
+		{"/api/accounts/suspend", post, p.Suspend},
+		{"/api/accounts/reactivate", post, p.Reactivate},
+		{"/api/reconciliation/queue", get, p.ReconciliationQueue},
+		{"/api/reconciliation/resolve", post, p.ResolveReconciliation},
+		{"/api/subscriptions", get, p.Subscriptions},
+		{"/api/subscriptions/activate", post, p.ActivateSubscription},
+		{"/api/subscriptions/revoke", post, p.RevokeSubscription},
+		{"/api/payouts", get, p.Payouts},
+		{"/api/payouts/reject", post, p.RejectPayout},
+		{"/api/me", get, p.Me},
+		{"/api/tickets", get, p.Tickets},
+		{"/api/tickets/accept", post, p.AcceptTicket},
+		{"/api/tickets/history", get, p.TicketsHistory},
+		{"/api/chat/history", get, p.TicketsHistory},
+		{"/api/tickets/resolve", post, p.ResolveTicket},
+		{"/api/tickets/attachment", post, p.TicketAttachment},
+		{"/api/chat/attachments/view", get, p.AttachmentView},
+		{"/api/chat/ws", get, p.ChatWebSocket},
+	}
+}
+
 // newHandler builds the console's full HTTP surface: API routes, the static
 // UI, and the security headers applied to every response.
 func newHandler(p *proxy.ReviewerProxy, webDir string) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	mux.Handle("/healthz", allowMethods([]string{http.MethodGet, http.MethodHead}, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
-	})
-	mux.HandleFunc("/api/queue", p.Queue)
-	mux.HandleFunc("/api/review", p.Review)
-	mux.HandleFunc("/api/documents/view", p.DocumentView)
-	mux.HandleFunc("/api/documents/user", p.UserDocuments)
-	mux.HandleFunc("/api/accounts", p.Accounts)
-	mux.HandleFunc("/api/accounts/suspend", p.Suspend)
-	mux.HandleFunc("/api/accounts/reactivate", p.Reactivate)
-	mux.HandleFunc("/api/reconciliation/queue", p.ReconciliationQueue)
-	mux.HandleFunc("/api/reconciliation/resolve", p.ResolveReconciliation)
-	mux.HandleFunc("/api/subscriptions", p.Subscriptions)
-	mux.HandleFunc("/api/subscriptions/activate", p.ActivateSubscription)
-	mux.HandleFunc("/api/subscriptions/revoke", p.RevokeSubscription)
-	mux.HandleFunc("/api/payouts", p.Payouts)
-	mux.HandleFunc("/admin/payouts", p.Payouts)
-	mux.HandleFunc("/api/payouts/reject", p.RejectPayout)
-	mux.HandleFunc("/admin/payouts/reject", p.RejectPayout)
-	mux.HandleFunc("/api/me", p.Me)
-	mux.HandleFunc("/api/tickets", p.Tickets)
-	mux.HandleFunc("/api/tickets/accept", p.AcceptTicket)
-	mux.HandleFunc("/api/tickets/history", p.TicketsHistory)
-	mux.HandleFunc("/api/chat/history", p.TicketsHistory)
-	mux.HandleFunc("/api/tickets/resolve", p.ResolveTicket)
-	mux.HandleFunc("/api/tickets/attachment", p.TicketAttachment)
-	mux.HandleFunc("/api/chat/attachments/view", p.AttachmentView)
-	mux.HandleFunc("/api/chat/ws", p.ChatWebSocket)
+	}))
+	for _, rt := range apiRoutes(p) {
+		mux.Handle(rt.path, allowMethods(rt.methods, rt.handler))
+	}
 	mux.Handle("/", staticHandler(webDir))
 	return securityHeaders(mux)
+}
+
+// allowMethods answers 405 (with an Allow header) before the handler runs
+// for any method outside the route's allow-list.
+func allowMethods(methods []string, h http.HandlerFunc) http.Handler {
+	allow := strings.Join(methods, ", ")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !slices.Contains(methods, r.Method) {
+			w.Header().Set("Allow", allow)
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		h(w, r)
+	})
 }
 
 // staticFiles is the complete set of UI assets served from webDir; anything

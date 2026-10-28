@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -128,5 +129,50 @@ func TestSecurityHeaders_DocumentStreamKeepsUpstreamType(t *testing.T) {
 		if rec.Header().Get("Cache-Control") != "no-store" || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
 			t.Errorf("%s: missing no-store/nosniff on document stream", target)
 		}
+	}
+}
+
+func TestRoutes_MethodAllowList(t *testing.T) {
+	upstreamCalls := 0
+	h := testHandler(t, func(w http.ResponseWriter, _ *http.Request) {
+		upstreamCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	})
+	all := []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions, "TRACE"}
+	for _, rt := range apiRoutes(nil) {
+		for _, m := range all {
+			if slices.Contains(rt.methods, m) {
+				continue
+			}
+			rec := serve(h, m, rt.path)
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s = %d, want 405", m, rt.path, rec.Code)
+			}
+			if got, want := rec.Header().Get("Allow"), strings.Join(rt.methods, ", "); got != want {
+				t.Errorf("%s %s Allow = %q, want %q", m, rt.path, got, want)
+			}
+		}
+	}
+	if upstreamCalls != 0 {
+		t.Errorf("disallowed methods reached upstream %d times", upstreamCalls)
+	}
+	if got := serve(h, http.MethodPost, "/healthz").Code; got != http.StatusMethodNotAllowed {
+		t.Errorf("POST /healthz = %d, want 405", got)
+	}
+}
+
+func TestRoutes_AdminPayoutAliasesRemoved(t *testing.T) {
+	upstreamCalls := 0
+	h := testHandler(t, func(http.ResponseWriter, *http.Request) { upstreamCalls++ })
+	for _, m := range []string{http.MethodGet, http.MethodPost} {
+		for _, path := range []string{"/admin/payouts", "/admin/payouts/reject"} {
+			if got := serve(h, m, path).Code; got != http.StatusNotFound && got != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s = %d, want 404/405", m, path, got)
+			}
+		}
+	}
+	if upstreamCalls != 0 {
+		t.Errorf("removed aliases reached upstream %d times", upstreamCalls)
 	}
 }
