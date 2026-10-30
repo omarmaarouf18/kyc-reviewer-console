@@ -424,6 +424,40 @@ h2 { font-size: 1.15rem; margin: 0; }
 .error { color: var(--danger); font-size: 0.875rem; }
 .banner { background: var(--error-bg); color: var(--text); padding: 0.5rem 0.75rem; border-radius: 12px; margin: 0.75rem 0; }
 
+/* ---- Segmented switch ------------------------------------------------------ */
+
+.segmented {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  margin-bottom: 1rem;
+  background: var(--fill-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.segment {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 0.4rem 1rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.segment.is-active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(13, 19, 33, 0.18);
+}
+
+.segment:hover:not(.is-active) {
+  color: var(--text);
+}
+
 .toolbar {
   display: flex;
   gap: 0.75rem;

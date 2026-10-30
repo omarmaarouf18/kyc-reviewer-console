@@ -445,7 +445,7 @@ export async function refreshBadgeCounts() {
     const [queueRes, reconRes, subsRes, ticketsRes, payoutsRes] = await Promise.allSettled([
       api('/api/queue').then(r => r.ok ? r.json() : []),
       api('/api/reconciliation/queue?page=1&limit=1').then(r => r.ok ? r.json() : {}),
-      api('/api/subscriptions?page=1&limit=1').then(r => r.ok ? r.json() : {}),
+      api('/api/subscriptions/queue?page=1&limit=1').then(r => r.ok ? r.json() : {}),
       api('/api/tickets?page=1&limit=1').then(r => r.ok ? r.json() : {}),
       api('/api/payouts?status=requested&page=1&limit=1').then(r => r.ok ? r.json() : {}),
     ]);
@@ -459,8 +459,9 @@ export async function refreshBadgeCounts() {
       if (b) b.textContent = `${reconRes.value.total ?? (reconRes.value.disputes?.length || 0)}`;
     }
     if (subsRes.status === 'fulfilled' && subsRes.value) {
+      // The badge counts the upgrade requests awaiting verification.
       const b = document.getElementById('subscriptions-badge');
-      if (b) b.textContent = `${subsRes.value.total ?? (subsRes.value.subscriptions?.length || 0)}`;
+      if (b) b.textContent = `${subsRes.value.total ?? (subsRes.value.queue?.length || 0)}`;
     }
     if (ticketsRes.status === 'fulfilled' && ticketsRes.value) {
       const b = document.getElementById('tickets-badge');

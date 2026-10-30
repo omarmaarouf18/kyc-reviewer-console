@@ -52,6 +52,17 @@ const subscriptionsState = {
   search: '',
   status: '',
   total: 0,
+  rows: [],
+  // 'queue' (the pending upgrade requests, the default view) or 'all'.
+  view: 'queue',
+};
+
+// The pending upgrade requests (offline payment awaiting verification).
+const subscriptionsQueueState = {
+  page: 1,
+  limit: 15,
+  total: 0,
+  rows: [],
 };
 
 const ticketsState = {
@@ -101,6 +112,7 @@ const state = {
   accountsState,
   reconciliationState,
   subscriptionsState,
+  subscriptionsQueueState,
   ticketsState,
   payoutsState,
   claimsState,
@@ -138,7 +150,8 @@ export function resetSessionState() {
   });
   Object.assign(accountsState, { page: 1, search: '', role: '', status: '', total: 0, rows: [] });
   Object.assign(reconciliationState, { page: 1, total: 0 });
-  Object.assign(subscriptionsState, { page: 1, search: '', status: '', total: 0 });
+  Object.assign(subscriptionsState, { page: 1, search: '', status: '', total: 0, rows: [], view: 'queue' });
+  Object.assign(subscriptionsQueueState, { page: 1, total: 0, rows: [] });
   Object.assign(ticketsState, { page: 1, search: '', status: '', total: 0 });
   Object.assign(payoutsState, { page: 1, status: '', total: 0 });
   Object.assign(claimsState, { page: 1, total: 0 });

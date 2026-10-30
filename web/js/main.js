@@ -32,7 +32,7 @@ const tabs = {
   jobs: { section: 'jobs-section', btn: 'tab-jobs-btn', load: () => jobs.loadJobs() },
   services: { section: 'services-section', btn: 'tab-services-btn', load: () => services.loadServices() },
   reconciliation: { section: 'reconciliation-section', btn: 'tab-reconciliation-btn', load: () => disputes.loadReconciliation() },
-  subscriptions: { section: 'subscriptions-section', btn: 'tab-subscriptions-btn', load: () => subscriptions.loadSubscriptions() },
+  subscriptions: { section: 'subscriptions-section', btn: 'tab-subscriptions-btn', load: () => subscriptions.loadSubscriptionQueue() },
   tickets: { section: 'tickets-section', btn: 'tab-tickets-btn', load: () => tickets.loadTickets() },
   payouts: { section: 'payouts-section', btn: 'tab-payouts-btn', load: () => payouts.loadPayouts() },
 };

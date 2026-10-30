@@ -281,48 +281,85 @@
       </div>
     </section>
 
-    <!-- TAB 4: Subscriptions (ADR-0023 Module A) -->
+    <!-- TAB 4: Subscriptions (ADR-0023 Module A) - upgrade queue first -->
     <section id="subscriptions-section" hidden>
       <header>
-        <h2>Tenant Subscriptions</h2>
-        <button id="refresh-subscriptions-btn" type="button">Refresh</button>
+        <h2 data-i18n="subscriptions.title">الاشتراكات</h2>
+        <button id="refresh-subscriptions-btn" type="button" data-i18n="subscriptions.refresh">تحديث</button>
       </header>
 
-      <form id="subscriptions-filter-form" class="toolbar">
-        <input type="text" id="subscriptions-search-input" placeholder="Search tenant ID or reason..." autocomplete="off" />
-        <select id="subscriptions-status-filter">
-          <option value="">All Tiers</option>
-          <option value="pending_payment">Pending Payment</option>
-          <option value="paid">Paid</option>
-          <option value="free">Free</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
-        <button type="submit">Filter</button>
-        <button type="button" id="subscriptions-reset-btn" class="secondary">Reset</button>
-      </form>
+      <div class="segmented" id="subscriptions-switch" role="tablist">
+        <button type="button" id="subscriptions-view-queue" class="segment is-active" role="tab"
+          aria-selected="true" data-i18n="subscriptions.view.queue">قائمة الترقية</button>
+        <button type="button" id="subscriptions-view-all" class="segment" role="tab"
+          aria-selected="false" data-i18n="subscriptions.view.all">كل الاشتراكات</button>
+      </div>
 
-      <p id="subscriptions-error" class="error banner" hidden></p>
+      <!-- View 1: pending upgrade requests (the default) -->
+      <div id="subscriptions-queue-view" role="tabpanel">
+        <p id="subscriptions-queue-error" class="error banner" hidden></p>
 
-      <table id="subscriptions-table">
-        <thead>
-          <tr>
-            <th>Tenant ID</th>
-            <th>Tier Status</th>
-            <th>Started At</th>
-            <th>Expires At</th>
-            <th>Audit Notes</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+        <table id="subscriptions-queue-table">
+          <thead>
+            <tr>
+              <th data-i18n="subscriptions.queue.col.tenant">التاجر</th>
+              <th data-i18n="subscriptions.queue.col.plan">الخطة المطلوبة</th>
+              <th data-i18n="subscriptions.queue.col.requested">تاريخ الطلب</th>
+              <th data-i18n="subscriptions.queue.col.contact">صاحب الحساب</th>
+              <th data-i18n="subscriptions.queue.col.action">إجراء</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
 
-      <div class="pagination-bar">
-        <span id="subscriptions-count" class="muted"></span>
-        <div class="pagination-controls">
-          <button id="subscriptions-prev-btn" type="button" class="secondary" disabled>&larr; Prev</button>
-          <span id="subscriptions-page-info">Page 1</span>
-          <button id="subscriptions-next-btn" type="button" class="secondary" disabled>Next &rarr;</button>
+        <div class="pagination-bar">
+          <span id="subscriptions-queue-count" class="muted"></span>
+          <div class="pagination-controls">
+            <button id="subscriptions-queue-prev-btn" type="button" class="secondary" disabled>&larr; Prev</button>
+            <span id="subscriptions-queue-page-info">Page 1</span>
+            <button id="subscriptions-queue-next-btn" type="button" class="secondary" disabled>Next &rarr;</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- View 2: every subscription (tiers, expiry, audit trail) -->
+      <div id="subscriptions-all-view" role="tabpanel" hidden>
+        <form id="subscriptions-filter-form" class="toolbar">
+          <input type="text" id="subscriptions-search-input" placeholder="Search tenant ID or reason..." autocomplete="off" />
+          <select id="subscriptions-status-filter">
+            <option value="">All Tiers</option>
+            <option value="pending_payment">Pending Payment</option>
+            <option value="paid">Paid</option>
+            <option value="free">Free</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <button type="submit" data-i18n="subscriptions.filter">بحث</button>
+          <button type="button" id="subscriptions-reset-btn" class="secondary" data-i18n="subscriptions.reset">مسح</button>
+        </form>
+
+        <p id="subscriptions-error" class="error banner" hidden></p>
+
+        <table id="subscriptions-table">
+          <thead>
+            <tr>
+              <th data-i18n="subscriptions.col.tenant">معرف التاجر</th>
+              <th data-i18n="subscriptions.col.tier">حالة الباقة</th>
+              <th data-i18n="subscriptions.col.started">بدأت</th>
+              <th data-i18n="subscriptions.col.expires">تنتهي</th>
+              <th data-i18n="subscriptions.col.notes">ملاحظات التدقيق</th>
+              <th data-i18n="subscriptions.col.action">إجراء</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+
+        <div class="pagination-bar">
+          <span id="subscriptions-count" class="muted"></span>
+          <div class="pagination-controls">
+            <button id="subscriptions-prev-btn" type="button" class="secondary" disabled>&larr; Prev</button>
+            <span id="subscriptions-page-info">Page 1</span>
+            <button id="subscriptions-next-btn" type="button" class="secondary" disabled>Next &rarr;</button>
+          </div>
         </div>
       </div>
     </section>
@@ -594,10 +631,10 @@
 
     <!-- Dialog: Activate Subscription (ADR-0023 Module A) -->
     <dialog id="activate-sub-dialog">
-      <h2>Activate Tenant Paid Tier</h2>
+      <h2 data-i18n="subscriptions.activate.title">تفعيل الباقة المدفوعة</h2>
       <p id="activate-sub-target" class="muted"></p>
-      <p class="info-callout">Confirm manual offline payment or bank invoice verification before activation.</p>
-      <label for="activate-sub-duration">Plan Duration</label>
+      <p class="info-callout" data-i18n="subscriptions.activate.info">Confirm manual offline payment or bank invoice verification before activation.</p>
+      <label for="activate-sub-duration" data-i18n="subscriptions.activate.duration">مدة الباقة</label>
       <select id="activate-sub-duration">
         <option value="30">30 Days (1 Month)</option>
         <option value="90">90 Days (3 Months)</option>
@@ -606,23 +643,23 @@
       </select>
       <p id="activate-sub-error" class="error" hidden></p>
       <menu>
-        <button id="activate-sub-cancel" type="button" class="secondary">Cancel</button>
-        <button id="activate-sub-submit" type="button">Activate Plan</button>
+        <button id="activate-sub-cancel" type="button" class="secondary" data-i18n="subscriptions.activate.close">Cancel</button>
+        <button id="activate-sub-submit" type="button" data-i18n="subscriptions.activate.submit">Activate Plan</button>
       </menu>
     </dialog>
 
     <!-- Dialog: Revoke Subscription (ADR-0023 Module A) -->
     <dialog id="revoke-sub-dialog">
-      <h2>Revoke Subscription Plan</h2>
+      <h2 data-i18n="subscriptions.revoke.title">إلغاء الاشتراك</h2>
       <p id="revoke-sub-target" class="muted"></p>
       <p class="warning-callout">Revoking will immediately cancel tenant access to paid SaaS features.</p>
-      <label for="revoke-sub-reason">Reason for revocation (required) <span class="required">*</span></label>
+      <label for="revoke-sub-reason"><span data-i18n="subscriptions.revoke.reason">Reason for revocation (required)</span> <span class="required">*</span></label>
       <textarea id="revoke-sub-reason" maxlength="1000" rows="3" required
         placeholder="Explain why this subscription is being revoked / cancelled"></textarea>
       <p id="revoke-sub-error" class="error" hidden></p>
       <menu>
-        <button id="revoke-sub-cancel" type="button" class="secondary">Cancel</button>
-        <button id="revoke-sub-submit" type="button" class="danger">Revoke Plan</button>
+        <button id="revoke-sub-cancel" type="button" class="secondary" data-i18n="subscriptions.revoke.close">Cancel</button>
+        <button id="revoke-sub-submit" type="button" class="danger" data-i18n="subscriptions.revoke.submit">Revoke Plan</button>
       </menu>
     </dialog>
 

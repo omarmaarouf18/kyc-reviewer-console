@@ -40,6 +40,7 @@ func apiRoutes(p *proxy.ReviewerProxy) []route {
 		{"/api/reconciliation/queue", get, p.ReconciliationQueue},
 		{"/api/reconciliation/resolve", post, p.ResolveReconciliation},
 		{"/api/subscriptions", get, p.Subscriptions},
+		{"/api/subscriptions/queue", get, p.SubscriptionQueue},
 		{"/api/subscriptions/activate", post, p.ActivateSubscription},
 		{"/api/subscriptions/revoke", post, p.RevokeSubscription},
 		{"/api/payouts", get, p.Payouts},

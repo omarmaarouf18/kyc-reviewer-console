@@ -97,10 +97,12 @@ Deploy the container on the same compose network (`saas-net`) so downstream serv
    - List business services with tenant/name/photo/visibility filters.
    - Hide or unhide a listing with a mandatory reason (the owner is notified).
    - Remove an inappropriate or infringing service photo (object storage deletion) with a mandatory reason.
-6. **Subscriptions Management** (`/api/subscriptions`, `/api/subscriptions/activate`, `/api/subscriptions/revoke`):
-   - Monitor tenant subscriptions across all tiers (`pending_payment`, `free`, `paid`, `cancelled`).
-   - Manual plan activation with configurable duration (e.g. 30, 60, 90, 365 days).
+6. **Subscriptions Management** (`/api/subscriptions/queue`, `/api/subscriptions`, `/api/subscriptions/activate`, `/api/subscriptions/revoke`):
+   - Queue-first: the page opens on the pending upgrade requests awaiting manual payment verification (oldest first) — tenant, requested plan, request date and the owner contact (name, username, email, phone).
+   - Manual plan activation with configurable duration (e.g. 30, 60, 90, 365 days) from the queue row (`{tenant_id, subscription_id, duration_days}`).
+   - A second view lists every subscription across all tiers (`pending_payment`, `free`, `paid`, `cancelled`) with its expiry and audit trail.
    - Plan revocation with mandatory reason (1–1000 chars) and audit logging.
+   - The sidebar badge counts the upgrade queue, not the whole subscription table.
 7. **Support Tickets Inbox & Resolution** (`/api/tickets`, `/api/tickets/resolve`):
    - Universal support ticket inbox across all tenants and customers.
    - Status filtering (`pending`, `assigned`, `resolved`) and search.

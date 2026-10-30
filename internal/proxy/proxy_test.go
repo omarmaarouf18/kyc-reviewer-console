@@ -314,6 +314,29 @@ func TestReactivate_ValidPayloadForwarded(t *testing.T) {
 	}
 }
 
+func TestSubscriptionQueue_ForwardsToUserService(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`{"queue":[{"id":"sub-771","tenant_id":"tenant-cairo-express","requested_plan":"pro"}],"total":1,"page":1,"limit":20}`)}
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	p := NewWithUserService("secret-internal-token", "https://auth-service", upstream.URL, upstream.Client())
+	t.Cleanup(upstream.Close)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/subscriptions/queue?page=1&limit=20", nil)
+	req.Header.Set("X-Reviewer-Token", "tok")
+	rec := httptest.NewRecorder()
+	p.SubscriptionQueue(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if stub.gotPath != "/admin/subscriptions/queue" {
+		t.Errorf("unexpected upstream path: %q", stub.gotPath)
+	}
+	if stub.gotRawQuery != "page=1&limit=20" {
+		t.Errorf("query not forwarded: %q", stub.gotRawQuery)
+	}
+}
+
 func TestServices_ForwardsToUserServiceWithQuery(t *testing.T) {
 	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
 		responseBytes: []byte(`{"services":[{"id":"svc-555","is_hidden":true}],"total":1,"page":1,"limit":20}`)}

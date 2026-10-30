@@ -703,6 +703,21 @@ func (p *ReviewerProxy) Overview(w http.ResponseWriter, r *http.Request) {
 	p.forwardToService(w, r, p.userServiceURL, "/admin/overview")
 }
 
+// SubscriptionQueue proxies GET /admin/subscriptions/queue to user-service: the
+// pending upgrade requests awaiting manual payment verification (oldest
+// first). The console shows this queue first.
+func (p *ReviewerProxy) SubscriptionQueue(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	upstreamPath := "/admin/subscriptions/queue"
+	if r.URL.RawQuery != "" {
+		upstreamPath += "?" + r.URL.RawQuery
+	}
+	p.forwardToService(w, r, p.userServiceURL, upstreamPath)
+}
+
 func (p *ReviewerProxy) Subscriptions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
