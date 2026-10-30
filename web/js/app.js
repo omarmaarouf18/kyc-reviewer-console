@@ -2,6 +2,7 @@
 // one import. web/js/app.js has NO side effects and no boot-time DOM work;
 // the browser entry with the side effects is web/js/main.js.
 
+export * from './pages/overview.js';
 export * from './pages/kyc.js';
 export * from './pages/accounts.js';
 export * from './pages/kycdocs.js';

@@ -314,6 +314,48 @@ func TestReactivate_ValidPayloadForwarded(t *testing.T) {
 	}
 }
 
+func TestOverview_ForwardsToUserServiceWithTokens(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`{"pending_kyb_kye":14,"pending_payment_subscriptions":3,"open_tickets":5,"assigned_tickets":2,"gps_disputes":2,"stuck_cod_jobs":1,"jobs_today":{"pending_dispatch":5,"active":12,"completed":45,"cancelled":2},"new_accounts_today":18,"new_accounts_7d":114,"suspended_accounts":"unavailable"}`)}
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	p := NewWithUserService("secret-internal-token", "https://auth-service", upstream.URL, upstream.Client())
+	t.Cleanup(upstream.Close)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overview", nil)
+	req.Header.Set("X-Reviewer-Token", "reviewer-tok-abc")
+	rec := httptest.NewRecorder()
+	p.Overview(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if stub.gotInternal != "secret-internal-token" || stub.gotReviewer != "reviewer-tok-abc" {
+		t.Errorf("tokens not forwarded correctly: internal=%q reviewer=%q", stub.gotInternal, stub.gotReviewer)
+	}
+	if stub.gotPath != "/admin/overview" {
+		t.Errorf("unexpected upstream path: %q", stub.gotPath)
+	}
+}
+
+func TestOverview_MethodGating(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK}
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	p := NewWithUserService("secret-internal-token", "https://auth-service", upstream.URL, upstream.Client())
+	t.Cleanup(upstream.Close)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/overview", nil)
+	req.Header.Set("X-Reviewer-Token", "tok")
+	rec := httptest.NewRecorder()
+	p.Overview(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST /api/overview = %d, want 405", rec.Code)
+	}
+	if stub.gotPath != "" {
+		t.Errorf("POST must not reach the upstream (saw %q)", stub.gotPath)
+	}
+}
+
 func TestReconciliationQueue_ForwardsToUserServiceWithTokens(t *testing.T) {
 	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
 		responseBytes: []byte(`{"disputes":[{"id":"job-123","booked_distance":10.0,"actual_distance":5.0}],"total":1,"page":1,"limit":20}`)}

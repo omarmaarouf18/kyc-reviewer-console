@@ -21,6 +21,7 @@ func apiRoutes(p *proxy.ReviewerProxy) []route {
 	get := []string{http.MethodGet}
 	post := []string{http.MethodPost}
 	return []route{
+		{"/api/overview", get, p.Overview},
 		{"/api/queue", get, p.Queue},
 		{"/api/review", post, p.Review},
 		{"/api/documents/view", get, p.DocumentView},
@@ -106,6 +107,7 @@ var staticFiles = map[string]string{
 	"/js/pages/payouts.js":       "js/pages/payouts.js",
 	"/js/pages/subscriptions.js": "js/pages/subscriptions.js",
 	"/js/pages/tickets.js":       "js/pages/tickets.js",
+	"/js/pages/overview.js":      "js/pages/overview.js",
 	// Bundled IBM Plex Sans Arabic (CONSOLE-V2 item 2), OFL license in web/fonts/.
 	"/fonts/IBMPlexSansArabic-Regular.woff2":  "fonts/IBMPlexSansArabic-Regular.woff2",
 	"/fonts/IBMPlexSansArabic-Medium.woff2":   "fonts/IBMPlexSansArabic-Medium.woff2",

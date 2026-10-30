@@ -17,7 +17,7 @@ No external consumer application can reach administrative endpoints directly —
 
 - **Two-Token Contract**: Reviewers authenticate with their `X-Reviewer-Token` (onboarded server-side via saas-core's `onboard-reviewer` CLI; hashed at rest in `auth_db.reviewers`). The internal service token never reaches the browser.
 - **No Self-Service Admin Accounts**: Reviewer accounts are created exclusively via manual server-side CLI operations (`cmd/onboard-reviewer`). There is no public registration or self-service signup.
-- **Single Permission Level**: All authenticated reviewers have uniform access across all 6 console tabs (no complex nested RBAC or sub-role splits).
+- **Single Permission Level**: All authenticated reviewers have uniform access across all console pages (Overview + 6 modules; no complex nested RBAC or sub-role splits).
 - **Tab-Scoped Session**: The reviewer token is held in browser `sessionStorage` (closing the tab signs out), with a 30-minute idle sign-out (see [Security](#security)).
 - **Mandatory Reasons**: All destructive and override mutations (KYC rejections, account suspensions, dispute overrides, subscription revocations, ticket resolutions, payout rejections) strictly enforce mandatory reasons (1–1000 characters) both in the UI and server-side.
 
@@ -71,6 +71,8 @@ docker run --rm -p 8090:8090 \
 Deploy the container on the same compose network (`saas-net`) so downstream services resolve internally.
 
 ## Features (6 Core Modules — Expanded per commit f5b7b6a)
+
+0. **Overview** (`/api/overview`): operational counters (pending KYB/KYE reviews, subscriptions pending payment, open/assigned tickets, GPS disputes, stuck COD jobs, today's jobs by status, new/suspended accounts). Figures from a backend that fails inside user-service arrive as `unavailable` and are shown as such, never as 0.
 
 1. **Pending Submissions (KYC/KYB/KYE)** (`/api/queue`, `/api/review`, `/api/documents/view`):
    - Review pending identity documents for business owners (KYB) and couriers (KYE).

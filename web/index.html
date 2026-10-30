@@ -37,7 +37,10 @@
 
     <div class="shell">
       <nav id="console-nav" class="side-nav" aria-label="Main">
-        <button id="tab-queue-btn" class="nav-item active" type="button">
+        <button id="tab-overview-btn" class="nav-item active" type="button">
+          <span data-i18n="nav.overview">نظرة عامة</span>
+        </button>
+        <button id="tab-queue-btn" class="nav-item" type="button">
           <span data-i18n="nav.queue">قيد المراجعة</span><span id="queue-badge" class="pill">0</span>
         </button>
         <button id="tab-accounts-btn" class="nav-item" type="button">
@@ -58,6 +61,18 @@
       </nav>
 
       <main id="console-main">
+
+    <!-- TAB 0: Overview -->
+    <section id="overview-section">
+      <header>
+        <h2 data-i18n="overview.title">نظرة عامة</h2>
+        <button id="refresh-overview-btn" type="button" data-i18n="overview.refresh">تحديث</button>
+      </header>
+
+      <p id="overview-loading" class="muted">جارٍ التحميل…</p>
+      <p id="overview-error" class="error banner" hidden></p>
+      <div id="overview-grid" class="overview-grid"></div>
+    </section>
 
     <!-- TAB 1: Pending Queue -->
     <section id="queue-section">

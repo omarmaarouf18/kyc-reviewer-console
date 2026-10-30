@@ -17,7 +17,7 @@ function clearSessionDom() {
   // Rendered reviewer data must not survive the session in the DOM.
   for (const tbody of document.querySelectorAll('table tbody')) tbody.textContent = '';
   for (const dlg of document.querySelectorAll('dialog')) dlg.close();
-  for (const id of ['ticket-chat-messages', 'resolve-dispute-details', 'resolve-ticket-details', 'user-docs-links', 'user-docs-status-bar', 'reviewer-identity']) {
+  for (const id of ['ticket-chat-messages', 'resolve-dispute-details', 'resolve-ticket-details', 'user-docs-links', 'user-docs-status-bar', 'reviewer-identity', 'overview-grid']) {
     const node = document.getElementById(id);
     if (node) node.textContent = '';
   }

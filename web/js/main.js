@@ -10,6 +10,7 @@ import * as theme from './core/theme.js';
 import { logout, markActivity, checkIdle, startIdleWatch, wireActivityListeners } from './core/session.js';
 import { openDialog } from './core/ui/dialog.js';
 
+import * as overview from './pages/overview.js';
 import * as kyc from './pages/kyc.js';
 import * as accounts from './pages/accounts.js';
 import * as kycdocs from './pages/kycdocs.js';
@@ -18,11 +19,12 @@ import * as subscriptions from './pages/subscriptions.js';
 import * as tickets from './pages/tickets.js';
 import * as payouts from './pages/payouts.js';
 
-const pages = { kyc, accounts, kycdocs, disputes, subscriptions, tickets, payouts };
+const pages = { overview, kyc, accounts, kycdocs, disputes, subscriptions, tickets, payouts };
 
 // Tab definitions mirror the old switchTab(): one visible section at a time
 // plus a data load per activation.
 const tabs = {
+  overview: { section: 'overview-section', btn: 'tab-overview-btn', load: () => overview.loadOverview() },
   queue: { section: 'queue-section', btn: 'tab-queue-btn', load: () => kyc.loadQueue() },
   accounts: { section: 'accounts-section', btn: 'tab-accounts-btn', load: () => accounts.loadAccounts() },
   reconciliation: { section: 'reconciliation-section', btn: 'tab-reconciliation-btn', load: () => disputes.loadReconciliation() },
@@ -37,6 +39,7 @@ const tabs = {
 function addShellTranslations() {
   i18n.addTranslations('nav', {
     ar: {
+      overview: 'نظرة عامة',
       queue: 'قيد المراجعة',
       accounts: 'الحسابات',
       reconciliation: 'النزاعات والمطابقة',
@@ -45,6 +48,7 @@ function addShellTranslations() {
       payouts: 'طلبات الصرف',
     },
     en: {
+      overview: 'Overview',
       queue: 'Pending Submissions',
       accounts: 'Accounts Directory',
       reconciliation: 'Disputes & Reconciliation',
@@ -145,7 +149,7 @@ function wireTabs() {
       tab.load();
     }, navButtons[route]);
   }
-  router.setDefault('queue');
+  router.setDefault('overview');
 }
 
 export function wireAll() {
@@ -179,7 +183,7 @@ async function onLoginSubmit(e) {
     initReviewerIdentity();
     // Default page after sign-in; the hash drives it (browser) or render()
     // runs directly (tests / same hash).
-    router.navigate('queue');
+    router.navigate('overview');
     tickets.refreshBadgeCounts();
   } catch (err) {
     sessionStorage.clear();
@@ -228,5 +232,5 @@ export function boot() {
   bootstrapSession();
 }
 
-export { kyc, accounts, kycdocs, disputes, subscriptions, tickets, payouts, tabs };
+export { overview, kyc, accounts, kycdocs, disputes, subscriptions, tickets, payouts, tabs };
 export { openDialog };

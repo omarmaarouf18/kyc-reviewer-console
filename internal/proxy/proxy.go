@@ -511,6 +511,18 @@ func (p *ReviewerProxy) ResolveReconciliation(w http.ResponseWriter, r *http.Req
 }
 
 // Subscriptions proxies GET /admin/subscriptions to user-service (ADR-0023).
+// Overview proxies GET /admin/overview to user-service (which aggregates the
+// auth-service and chat-service internal overview stats itself). Figures for
+// a backend that fails inside user-service arrive as the string
+// "unavailable"; the upstream contract keeps the status at 200.
+func (p *ReviewerProxy) Overview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	p.forwardToService(w, r, p.userServiceURL, "/admin/overview")
+}
+
 func (p *ReviewerProxy) Subscriptions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)

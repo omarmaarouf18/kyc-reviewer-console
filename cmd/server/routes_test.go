@@ -32,7 +32,7 @@ func TestSecurityHeaders_EveryResponse(t *testing.T) {
 		_, _ = w.Write([]byte(`[]`))
 	})
 
-	for _, target := range []string{"/", "/js/boot.js", "/js/pages/kyc.js", "/style.css", "/healthz", "/api/queue", "/api/nope", "/missing.js"} {
+	for _, target := range []string{"/", "/js/boot.js", "/js/pages/kyc.js", "/js/pages/overview.js", "/style.css", "/healthz", "/api/overview", "/api/queue", "/api/nope", "/missing.js"} {
 		rec := serve(h, http.MethodGet, target)
 		hdr := rec.Header()
 		csp := hdr.Get("Content-Security-Policy")
@@ -102,6 +102,7 @@ func TestStatic_OnlyUIAssetsServed(t *testing.T) {
 		"/js/boot.js":                            http.StatusOK,
 		"/js/app.js":                             http.StatusOK,
 		"/js/pages/kyc.js":                       http.StatusOK,
+		"/js/pages/overview.js":                  http.StatusOK,
 		"/fonts/IBMPlexSansArabic-Regular.woff2": http.StatusOK,
 		"/fonts/IBMPlexSansArabic-Bold.woff2":    http.StatusOK,
 		// The OFL license and any other file under web/fonts/ stay unserved.
