@@ -15,6 +15,7 @@ import (
 type fakeChatService struct {
 	gotQuery    string
 	gotProtocol string
+	gotHeaders  http.Header
 	calls       int
 }
 
@@ -22,6 +23,7 @@ func (f *fakeChatService) handler(w http.ResponseWriter, r *http.Request) {
 	f.calls++
 	f.gotQuery = r.URL.RawQuery
 	f.gotProtocol = r.Header.Get("Sec-WebSocket-Protocol")
+	f.gotHeaders = r.Header.Clone()
 	conn, buf, err := w.(http.Hijacker).Hijack()
 	if err != nil {
 		return
@@ -33,6 +35,11 @@ func (f *fakeChatService) handler(w http.ResponseWriter, r *http.Request) {
 
 // handshake sends a raw WebSocket upgrade through the console proxy.
 func handshake(t *testing.T, consoleURL, path, protocols string) *http.Response {
+	return handshakeWithHeaders(t, consoleURL, path, protocols, nil)
+}
+
+// handshakeWithHeaders is handshake with extra request headers.
+func handshakeWithHeaders(t *testing.T, consoleURL, path, protocols string, headers map[string]string) *http.Response {
 	t.Helper()
 	conn, err := net.Dial("tcp", strings.TrimPrefix(consoleURL, "http://"))
 	if err != nil {
@@ -43,6 +50,9 @@ func handshake(t *testing.T, consoleURL, path, protocols string) *http.Response 
 		"Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
 	if protocols != "" {
 		req += "Sec-WebSocket-Protocol: " + protocols + "\r\n"
+	}
+	for name, value := range headers {
+		req += name + ": " + value + "\r\n"
 	}
 	if _, err := conn.Write([]byte(req + "\r\n")); err != nil {
 		t.Fatal(err)
@@ -110,6 +120,37 @@ func TestChatWebSocket_RejectsMissingToken_LegacyQueryFallback(t *testing.T) {
 	resp = handshake(t, console.URL, "/api/chat/ws?token=attacker&x=1", "kyc-console-auth, 0123abcd")
 	if resp.StatusCode != http.StatusSwitchingProtocols || chat.gotQuery != "token=0123abcd" {
 		t.Errorf("got %d with upstream query %q", resp.StatusCode, chat.gotQuery)
+	}
+}
+
+// TestChatWebSocket_CarriesTheReviewerIPOnly checks the reviewer rate-limit
+// contract on the socket: the edge-set client IP travels in
+// X-Console-Client-IP and no forwarding header reaches chat-service (a
+// browser could otherwise pick another reviewer's key).
+func TestChatWebSocket_CarriesTheReviewerIPOnly(t *testing.T) {
+	chat := &fakeChatService{}
+	upstream := httptest.NewServer(http.HandlerFunc(chat.handler))
+	defer upstream.Close()
+	p := NewWithServices("internal-test", upstream.URL, upstream.URL, upstream.URL, upstream.Client())
+	console := httptest.NewServer(http.HandlerFunc(p.ChatWebSocket))
+	defer console.Close()
+
+	resp := handshakeWithHeaders(t, console.URL, "/api/chat/ws", "kyc-console-auth, 0123abcd", map[string]string{
+		"X-Forwarded-For": "203.0.113.10, 198.51.100.7",
+		"X-Real-IP":       "198.51.100.7",
+	})
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("status = %d, want 101", resp.StatusCode)
+	}
+
+	if got := chat.gotHeaders.Get(http.CanonicalHeaderKey("X-Console-Client-IP")); got != "203.0.113.10" {
+		t.Errorf("X-Console-Client-IP = %q, want 203.0.113.10", got)
+	}
+	if _, ok := chat.gotHeaders[http.CanonicalHeaderKey("X-Forwarded-For")]; ok {
+		t.Error("X-Forwarded-For must not reach chat-service")
+	}
+	if _, ok := chat.gotHeaders[http.CanonicalHeaderKey("X-Real-IP")]; ok {
+		t.Error("X-Real-IP must not reach chat-service")
 	}
 }
 

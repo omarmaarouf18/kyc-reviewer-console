@@ -138,6 +138,10 @@ function wireLangToggle(btn) {
     i18n.setLanguage(i18n.getLanguage() === 'ar' ? 'en' : 'ar');
     label();
     translateShell();
+    // The page content is rendered by the page modules (tables, cards,
+    // dialogs), so the current route is re-rendered to pick up the new
+    // language instead of keeping the old strings until the next click.
+    router.render();
   });
 }
 

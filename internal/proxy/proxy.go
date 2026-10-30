@@ -14,6 +14,7 @@ import (
 	"io"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -23,6 +24,69 @@ import (
 )
 
 const reviewerTokenHeader = "X-Reviewer-Token"
+
+// consoleClientIPHeader carries the reviewer's browser IP to the internal
+// services. auth-service keys its per-IP reviewer rate limit on this header
+// (only when the request also carries a valid X-Internal-Token and the value
+// parses as an IP) and never on X-Forwarded-For / X-Real-IP: rotating those
+// used to reset the budget. user-service and the api-gateway forward this
+// header (and only this one) to auth-service.
+const consoleClientIPHeader = "X-Console-Client-IP"
+
+// consoleClientIP returns the reviewer's browser IP as seen by the console.
+//
+// The console is only reachable through the edge (Caddy), and Caddy rewrites
+// X-Forwarded-For with the client's IP (it ignores the browser's own header
+// because no trusted proxy is configured for it). The left-most entry of that
+// edge-set chain is therefore the reviewer's browser. The header is only
+// used as the source: it is never forwarded upstream, so a browser can never
+// pick the rate-limit key of another reviewer.
+//
+// An empty result means "unknown": no header is sent and the services fall
+// back to the TCP peer (the console container), exactly as before.
+func consoleClientIP(r *http.Request) string {
+	for _, part := range strings.Split(r.Header.Get("X-Forwarded-For"), ",") {
+		if ip := parseForwardedIP(part); ip != "" {
+			return ip
+		}
+	}
+	return ""
+}
+
+// parseForwardedIP parses one X-Forwarded-For entry (bare IP, IPv4 with a
+// port or a bracketed IPv6 with a port) and returns its canonical form.
+func parseForwardedIP(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		value = host
+	}
+	value = strings.Trim(value, "[]")
+	if ip := net.ParseIP(value); ip != nil {
+		return ip.String()
+	}
+	return ""
+}
+
+// setConsoleClientIP adds the reviewer browser IP to an upstream request and
+// strips the headers that must never reach an internal service.
+func setConsoleClientIP(req *http.Request, r *http.Request) {
+	if req.Header == nil {
+		req.Header = make(http.Header)
+	}
+	// A nil value (Go issue 38079) tells ReverseProxy not to populate
+	// X-Forwarded-For at all: with the Director API it would otherwise
+	// append the console's own peer IP after the Director ran, and every
+	// reviewer would share that key upstream.
+	req.Header["X-Forwarded-For"] = nil
+	req.Header.Del("X-Real-IP")
+	req.Header.Del("Forwarded")
+	if ip := consoleClientIP(r); ip != "" {
+		req.Header.Set(consoleClientIPHeader, ip)
+	}
+}
 
 const (
 	// maxJSONBody caps every JSON POST body; the largest legitimate payload
@@ -118,6 +182,7 @@ func (p *ReviewerProxy) forwardToService(w http.ResponseWriter, r *http.Request,
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Token", p.internalServiceToken)
 	req.Header.Set(reviewerTokenHeader, reviewerToken)
+	setConsoleClientIP(req, r)
 
 	// #nosec G704 //nolint:gosec -- same request as above: config-controlled host, escaped query string
 	resp, err := p.client.Do(req)
@@ -223,6 +288,7 @@ func (p *ReviewerProxy) forwardMultipartToService(w http.ResponseWriter, r *http
 	}
 	req.Header.Set("X-Internal-Token", p.internalServiceToken)
 	req.Header.Set(reviewerTokenHeader, reviewerToken)
+	setConsoleClientIP(req, r)
 
 	// #nosec G704 //nolint:gosec -- config-controlled host
 	resp, err := p.client.Do(req)
@@ -1328,6 +1394,9 @@ func (p *ReviewerProxy) ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 		req.URL.RawQuery = url.Values{"token": {token}}.Encode()
 		req.Host = target.Host
 		req.Header.Del("Sec-WebSocket-Protocol")
+		// The browser's forwarding headers never reach chat-service; the
+		// reviewer IP travels in the dedicated header only.
+		setConsoleClientIP(req, r)
 	}
 	rp.ModifyResponse = func(resp *http.Response) error {
 		if viaSubprotocol && resp.StatusCode == http.StatusSwitchingProtocols {

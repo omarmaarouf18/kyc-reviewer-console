@@ -3,6 +3,9 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -258,6 +261,69 @@ func TestRoutes_NotificationEndpointsReachTheirUpstreams(t *testing.T) {
 	}
 	if gotPath != "/admin/notifications/sends/send-1" {
 		t.Errorf("upstream path = %q, want /admin/notifications/sends/send-1", gotPath)
+	}
+}
+
+// TestStatic_EveryImportedModuleIsServed walks the ES module graph under
+// web/js and asserts that every imported file is in the static allow-list.
+// A missing entry breaks the whole module graph in the browser (the console
+// then boots nothing), so the check is part of the route tests.
+func TestStatic_EveryImportedModuleIsServed(t *testing.T) {
+	webDir := "../../web"
+	importRe := regexp.MustCompile(`from\s+'(\.{1,2}/[^']+)'`)
+
+	seen := map[string]bool{}
+	var walk func(dir string)
+	walk = func(dir string) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatalf("cannot read %s: %v", dir, err)
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				walk(filepath.Join(dir, entry.Name()))
+				continue
+			}
+			if !strings.HasSuffix(entry.Name(), ".js") {
+				continue
+			}
+			file := filepath.Join(dir, entry.Name())
+			if seen[file] {
+				continue
+			}
+			seen[file] = true
+
+			content, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatalf("cannot read %s: %v", file, err)
+			}
+			for _, match := range importRe.FindAllStringSubmatch(string(content), -1) {
+				imported := filepath.Clean(filepath.Join(filepath.Dir(file), match[1]))
+				rel, err := filepath.Rel(webDir, imported)
+				if err != nil {
+					t.Fatalf("cannot resolve %s: %v", match[1], err)
+				}
+				rel = filepath.ToSlash(rel)
+				if _, ok := staticFiles["/"+rel]; !ok {
+					t.Errorf("%s imports %s, which is not in the static allow-list", file, rel)
+					continue
+				}
+				if _, err := os.Stat(filepath.Join(webDir, rel)); err != nil {
+					t.Errorf("%s is in the allow-list but missing on disk", rel)
+				}
+			}
+		}
+	}
+	walk(filepath.Join(webDir, "js"))
+
+	// The browser entry and every module it reaches must exist.
+	for target := range staticFiles {
+		if !strings.HasSuffix(target, ".js") {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(webDir, strings.TrimPrefix(target, "/"))); err != nil {
+			t.Errorf("%s is in the allow-list but missing on disk", target)
+		}
 	}
 }
 

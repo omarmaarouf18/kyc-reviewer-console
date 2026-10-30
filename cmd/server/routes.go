@@ -111,6 +111,7 @@ var staticFiles = map[string]string{
 	"/js/core/router.js":         "js/core/router.js",
 	"/js/core/session.js":        "js/core/session.js",
 	"/js/core/state.js":          "js/core/state.js",
+	"/js/core/theme.js":          "js/core/theme.js",
 	"/js/core/ui/dialog.js":      "js/core/ui/dialog.js",
 	"/js/core/ui/search.js":      "js/core/ui/search.js",
 	"/js/core/ui/table.js":       "js/core/ui/table.js",

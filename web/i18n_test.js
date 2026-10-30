@@ -5,7 +5,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadApp } = require('./testdom.js');
+const { loadApp, jsonResponse } = require('./testdom.js');
 
 test('language toggle switches nav labels between Arabic (RTL) and English (LTR)', async () => {
   const env = await loadApp();
@@ -30,6 +30,29 @@ test('language toggle switches nav labels between Arabic (RTL) and English (LTR)
 
   env.doc.getElementById('lang-toggle-btn').click();
   assert.equal(env.doc.documentElement.dir, 'rtl');
+});
+
+test('the language toggle re-renders the open page in the new language', async () => {
+  const env = await loadApp({
+    fetch: async (url) => (url.startsWith('/api/overview')
+      ? jsonResponse({ pending_kyb_kye: 14, stuck_cod_jobs: 0, jobs_today: {} })
+      : jsonResponse([])),
+  });
+  env.ctx._resetLanguage('ar');
+  await env.main.initShell();
+  await env.ctx.loadOverview();
+
+  const grid = env.doc.getElementById('overview-grid');
+  assert.match(grid.textContent, /مراجعات KYB\/KYE/);
+
+  // The page content is rendered by the page modules, not by the shell
+  // translation pass: the toggle has to re-render the open route.
+  env.doc.getElementById('lang-toggle-btn').click();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(env.doc.documentElement.lang, 'en');
+  assert.match(grid.textContent, /Pending KYB\/KYE/);
+  assert.doesNotMatch(grid.textContent, /مراجعات KYB\/KYE/);
 });
 
 test('theme toggle flips the design-token palette on html[data-theme]', async () => {

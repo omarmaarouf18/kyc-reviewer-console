@@ -33,8 +33,28 @@ Browser-side and proxy-side hardening (CONSOLE-SEC). Keep these rules when chang
 - **Documents & attachments** open from `blob:` URLs, which run in the console origin, so `safeBlobUrl()` renders only JPEG/PNG/GIF/WebP/PDF inline; any other type is handed over as a download.
 - **Session**: idle sign-out after 30 minutes without pointer/keyboard activity (`IDLE_TIMEOUT_MS` in `web/js/core/session.js`). A 401 from any call, the idle timeout and "Sign out" all clear `sessionStorage`, close the chat socket and remove rendered reviewer data. The reviewer token is never put in a URL or logged: the chat WebSocket offers it as a subprotocol (`kyc-console-auth, <token>`) and the proxy adds the `?token=` that chat-service requires server-side.
 - **Proxy limits**: JSON POST bodies ≤ 64 KB, ticket attachments ≤ 10 MB (413 above); each route accepts only its listed methods (405 + `Allow`); upstream error bodies are reduced to the `{"error","message","code","request_id"}` contract, anything else becomes `{"error":"upstream error"}`.
+- **Reviewer client IP**: auth-service keys its per-IP reviewer rate limit on `X-Console-Client-IP` (only with a valid `X-Internal-Token` and a value that parses as an IP), never on `X-Forwarded-For` / `X-Real-IP`. The console therefore derives the reviewer's browser IP from the **edge-set** `X-Forwarded-For` (left-most valid entry, as set by Caddy) and sends it upstream as `X-Console-Client-IP` on every call (JSON, multipart and the chat WebSocket). It never forwards `X-Forwarded-For` or `X-Real-IP` to an internal service, so a browser cannot pick another reviewer's rate-limit key. An unknown IP sends no header and the services fall back to the TCP peer.
+- **Static allow-list**: every file the browser may fetch is listed explicitly in `cmd/server/routes.go` (no wildcards). `TestStatic_EveryImportedModuleIsServed` walks the ES module graph and fails when an imported module is not in the allow-list — a missing entry breaks the whole module graph and the console boots nothing.
 
 Tests: `go test ./... -count=1` and `node --test web/*_test.js` (no npm install needed).
+
+### Browser smoke test
+
+`scripts/smoke.mjs` boots the real Go binary against a stub of the internal services and drives a headless Chrome over the DevTools protocol (Node ≥ 24 for the global `WebSocket`; no npm install, no Playwright). It asserts that the shell boots, that the overview is the landing page, that the AR/RTL + light defaults and both toggles work, that every page renders, that the API is proxied and that no console error, exception or CSP violation was logged.
+
+```bash
+node scripts/smoke.mjs                  # writes docs/screens/
+node scripts/smoke.mjs --screens /tmp/x # write the screenshots elsewhere
+node scripts/smoke.mjs --headful        # watch it in a window
+```
+
+It writes the reference screenshots into `docs/screens/`:
+
+| Arabic · light | English · dark |
+|---|---|
+| ![Arabic, light](docs/screens/console-ar-light.png) | ![English, dark](docs/screens/console-en-dark.png) |
+
+The build log, the endpoint differences against saas-core's `ADMIN_API.md` and the owner deploy steps are in [docs/worklog/CONSOLE-V2.md](docs/worklog/CONSOLE-V2.md).
 
 ## Setup
 
@@ -76,10 +96,12 @@ Deploy the container on the same compose network (`saas-net`) so downstream serv
 
 ## Features (6 Core Modules — Expanded per commit f5b7b6a)
 
-> CONSOLE-V2 rebuild: the pages share one UI kit (table controller with
+> CONSOLE-V2 rebuild: the console is a native ES module app (no build
+> step) with twelve pages that share one UI kit (table controller with
 > pagination, dialog helper, toasts), one AR/EN dictionary and one
-> light/dark theme. A shell-level banner warns when jobs are stuck in escrow
-> reconciliation (COD) and jumps to the jobs page filtered on that status.
+> light/dark theme. A shell-level banner warns when jobs are stuck in
+> escrow reconciliation (COD) and jumps to the jobs page filtered on that
+> status.
 
 0. **Overview** (`/api/overview`): operational counters (pending KYB/KYE reviews, subscriptions pending payment, open/assigned tickets, GPS disputes, stuck COD jobs, today's jobs by status, new/suspended accounts). Figures from a backend that fails inside user-service arrive as `unavailable` and are shown as such, never as 0.
 
@@ -145,7 +167,7 @@ Deploy the container on the same compose network (`saas-net`) so downstream serv
 
 This repo holds original code; it is NOT a subtree mirror of the monorepo. The connection is:
 
-1. Runtime: this service proxies to `auth-service`, `user-service`, and `chat-service` over the internal network.
+1. Runtime: this service proxies to `auth-service`, `user-service`, `chat-service`, `notification-service` and `api-gateway` over the internal network.
 2. CI: saas-core → `repository_dispatch` → contract test run here.
 3. Semantics: ADR-0013 / ADR-0021 boundary enforcement — no reviewer capability may ever be reintroduced into the consumer mobile app binary; all administrative interfaces live here.
 

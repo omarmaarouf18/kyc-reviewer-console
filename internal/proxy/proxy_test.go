@@ -586,6 +586,82 @@ func TestNotificationSends_ListAndDetail(t *testing.T) {
 	}
 }
 
+// TestConsoleClientIP_ForwardsTheEdgeClientIP checks the reviewer rate-limit
+// contract: the console sends the reviewer's browser IP (the edge-set
+// X-Forwarded-For) as X-Console-Client-IP and never forwards the browser's
+// forwarding headers.
+func TestConsoleClientIP_ForwardsTheEdgeClientIP(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		xff  string
+		want string
+	}{
+		{"single address", "203.0.113.10", "203.0.113.10"},
+		{"chain uses the client address", "203.0.113.10, 198.51.100.7", "203.0.113.10"},
+		{"chain with spaces", "203.0.113.10 , 198.51.100.7", "203.0.113.10"},
+		{"ipv6", "2001:db8::1", "2001:db8::1"},
+		{"ipv6 with a port", "[2001:db8::1]:443", "2001:db8::1"},
+		{"ipv4 with a port", "203.0.113.10:443", "203.0.113.10"},
+		{"not an ip", "unknown", ""},
+		{"empty", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &upstreamStub{t: t, statusCode: http.StatusOK, responseBytes: []byte(`{}`)}
+			upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+			t.Cleanup(upstream.Close)
+			p := New("secret-internal-token", upstream.URL, upstream.Client())
+
+			req := httptest.NewRequest(http.MethodGet, "/api/queue", nil)
+			req.Header.Set("X-Reviewer-Token", "tok")
+			if tc.xff != "" {
+				req.Header.Set("X-Forwarded-For", tc.xff)
+			}
+			// A browser may send these; they must never reach the service.
+			req.Header.Set("X-Real-IP", "198.51.100.7")
+			rec := httptest.NewRecorder()
+			p.Queue(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+			// Go canonicalizes the header key ("...-Ip"); the wire format is
+			// case-insensitive, so the service still reads it.
+			if got := stub.gotHeaders[http.CanonicalHeaderKey("X-Console-Client-IP")]; got != tc.want {
+				t.Errorf("X-Console-Client-IP = %q, want %q", got, tc.want)
+			}
+			if _, ok := stub.gotHeaders["X-Forwarded-For"]; ok {
+				t.Error("X-Forwarded-For must not be forwarded upstream")
+			}
+			if _, ok := stub.gotHeaders["X-Real-IP"]; ok {
+				t.Error("X-Real-IP must not be forwarded upstream")
+			}
+		})
+	}
+}
+
+// TestConsoleClientIP_ReachesEveryService checks that the reviewer IP is
+// attached to the calls of every service (they all verify the reviewer
+// against auth-service, whose per-IP limit keys on this header).
+func TestConsoleClientIP_ReachesEveryService(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK, responseBytes: []byte(`{}`)}
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	t.Cleanup(upstream.Close)
+	p := NewWithAllServices("secret-internal-token", upstream.URL, upstream.URL, upstream.URL, upstream.URL, upstream.URL, upstream.Client())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
+	req.Header.Set("X-Reviewer-Token", "tok")
+	req.Header.Set("X-Forwarded-For", "203.0.113.10")
+	rec := httptest.NewRecorder()
+	p.Version(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := stub.gotHeaders[http.CanonicalHeaderKey("X-Console-Client-IP")]; got != "203.0.113.10" {
+		t.Errorf("X-Console-Client-IP = %q, want 203.0.113.10", got)
+	}
+}
+
 func TestSubscriptionQueue_ForwardsToUserService(t *testing.T) {
 	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
 		responseBytes: []byte(`{"queue":[{"id":"sub-771","tenant_id":"tenant-cairo-express","requested_plan":"pro"}],"total":1,"page":1,"limit":20}`)}

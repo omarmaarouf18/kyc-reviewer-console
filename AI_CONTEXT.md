@@ -8,16 +8,20 @@ convention).
 
 Standalone internal web console for administrative operations on the Quick
 Delivery platform (KYB/KYE document review, accounts directory & suspensions,
-disputes & reconciliation, subscriptions, support tickets, and payout requests). Implements the
+disputes & reconciliation, subscriptions, support tickets, payout requests,
+the merged audit log, the app version policy and admin announcements).
+Implements the
 Support Agent Console deferred by saas-core ADR-0013, scoped per ADR-0021,
-ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
+ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a` and
+rebuilt as a twelve-page ops console by CONSOLE-V2.
 
 - **Stack**: Go 1.26 (stdlib-only server) + vanilla HTML/JS/CSS UI.
 - **Deployment**: inside the internal network (same compose network as the
   services). Holds `INTERNAL_SERVICE_TOKEN`; fails fast without it.
 - **Auth**: pass-through proxy — browser sends `X-Reviewer-Token` only; the
   console injects the internal token server-side. Downstream services (`auth-service`,
-  `user-service`, `chat-service`) verify reviewer tokens via `GET /auth/reviewer/verify`.
+  `user-service`, `chat-service`, `notification-service`, `api-gateway`) verify
+  reviewer tokens via `GET /auth/reviewer/verify`.
   Single permission level; no self-service reviewer onboarding.
 
 ## What Exists Today
@@ -40,6 +44,8 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
 - `web/` — vanilla UI as native ES modules under `web/js/` (`web/index.html` wiring `web/js/boot.js`; `web/js/core/` incl. `theme.js` (light/dark, `console_theme`) and `i18n.js` (Arabic default/RTL, English, `console_lang`; header toggles); bundled IBM Plex Sans Arabic woff2 in `web/fonts/`; `web/style.css` is token-based (navy #0D1321, gold #FFC107; light/dark via `html[data-theme]`); no build step; `web/js/pages/overview.js` renders `GET /api/overview` counters, the landing page of the console; `web/js/pages/kyc.js` is the queue list + review side panel with keyboard shortcuts (arrows/j/k, Enter, a, r, Esc, ?); `web/js/pages/accounts.js` is the accounts list + account drawer; `web/js/pages/jobs.js` is the jobs search + detail dialog with cancel / complete-stuck-COD (`/api/jobs/{id}`); `web/js/pages/services.js` is the marketplace moderation list with hide / unhide / photo-removal actions; `web/js/pages/subscriptions.js` is queue-first (upgrade queue default, all subscriptions second view; activation posts `{tenant_id, subscription_id, duration_days}`); `web/js/pages/disputes.js`, `tickets.js` and `payouts.js` share the console UI kit (core/ui/table.js, core/ui/dialog.js, core/ui/toast.js) with AR/EN strings; `web/js/core/cod-banner.js` renders the shell-level stuck-COD banner (overview `stuck_cod_jobs`); `web/js/pages/audit.js` is the merged audit viewer (filters by actor/action/target/date plus the per-source status strip); `web/js/pages/versions.js` shows the app version policy card and its update dialog (`PUT /api/version`, mandatory reason); `web/js/pages/notifications.js` is the announcement composer (audience/title/body/deep link/reason, dry run, test user, confirmed audience size, idempotency key) plus the send history and its detail dialog; `core/i18n.js` flattens nested translation groups into dotted keys) with tab-scoped session auth, search toolbars, status filters, pagination controls, dynamic badge counters, and action dialog modals.
 - CI: `.github/workflows/ci.yml` (gofmt, build, vet, test, web tests, gosec);
   `.github/workflows/contract-sync.yml` responding to saas-core's `reviewer-api-contract` repository_dispatch.
+- `scripts/smoke.mjs` — dependency-free browser smoke test (real Go binary + stub upstream + headless Chrome over CDP): 24 checks, writes `docs/screens/console-ar-light.png` and `docs/screens/console-en-dark.png`.
+- `docs/worklog/` — `CONSOLE-SEC.md` (the hardening pass) and `CONSOLE-V2.md` (the rebuild: the item table, the verification output and the endpoint-differences table against saas-core's `ADMIN_API.md`).
 
 ## Recent Changes
 
@@ -84,6 +90,56 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
 - **Tests**: `web/notifications_test.js` (11 tests), `internal/proxy/proxy_test.go`
   (forwarding, the validation table, the allowed deep links, list + detail),
   `cmd/server/routes_test.go` (route -> upstream paths).
+
+### CONSOLE-V2 item 12: reviewer client IP, browser smoke test and worklog
+
+- **Reviewer client IP**: auth-service keys its per-IP reviewer rate limit
+  on `X-Console-Client-IP` (only with a valid `X-Internal-Token` and a
+  value that parses as an IP), never on `X-Forwarded-For` / `X-Real-IP`.
+  The console derives the reviewer's browser IP from the **edge-set**
+  `X-Forwarded-For` (the left-most entry that parses as an IP; Caddy sets
+  it) and sends it upstream as `X-Console-Client-IP` on every request
+  (`forwardToService`, `forwardMultipartToService` and the chat WebSocket
+  `Director`). `X-Forwarded-For` and `X-Real-IP` are **never** forwarded
+  upstream, so a browser cannot pick another reviewer's rate-limit key. An
+  unknown IP sends no header and the services fall back to the TCP peer.
+  Helpers: `consoleClientIP`, `parseForwardedIP`, `setConsoleClientIP` in
+  `internal/proxy/proxy.go`. On the WebSocket path the outbound
+  `X-Forwarded-For` is set to a **nil** value (Go issue 38079): with the
+  `Director` API, `ReverseProxy` would otherwise append the console's own
+  peer IP after the Director ran, and every reviewer would share that key
+  upstream. Tests: `internal/proxy/proxy_test.go`
+  (`TestConsoleClientIP_ForwardsTheEdgeClientIP`,
+  `TestConsoleClientIP_ReachesEveryService`) and
+  `internal/proxy/websocket_test.go`
+  (`TestChatWebSocket_CarriesTheReviewerIPOnly`). Note: Go canonicalizes
+  the header key, so tests read it with
+  `http.CanonicalHeaderKey("X-Console-Client-IP")`.
+- **Static allow-list fix**: `/js/core/theme.js` was imported by
+  `main.js` / `app.js` but missing from the allow-list in
+  `cmd/server/routes.go` — the module graph 404'd and the console booted
+  nothing in the browser (the Go and DOM tests could not see it: they
+  read the modules from disk). `TestStatic_EveryImportedModuleIsServed`
+  (`cmd/server/routes_test.go`) now walks the ES module graph under
+  `web/js` and fails when an imported module is not in the allow-list.
+- **Browser smoke test**: `scripts/smoke.mjs` builds the real Go binary,
+  starts it against a stub of the internal services and drives a headless
+  Chrome over the DevTools protocol (Node >= 24 global `WebSocket`, no npm
+  dependency, no Playwright). 24 checks: the shell boots, the overview is
+  the landing page, the AR/RTL + light defaults, the language and theme
+  toggles (and that the open page is re-rendered in the new language),
+  every page renders, the API is proxied and no console error, exception
+  or CSP violation was logged. It writes `docs/screens/console-ar-light.png`
+  and `docs/screens/console-en-dark.png`. Run: `node scripts/smoke.mjs`.
+- **Language toggle**: the page content is rendered by the page modules,
+  not by the shell translation pass, so the toggle now calls
+  `router.render()` to re-render the open route
+  (`web/js/main.js`; test in `web/i18n_test.js`).
+- **Worklog**: `docs/worklog/CONSOLE-V2.md` — the item table, the
+  verification output and the endpoint-differences table against
+  saas-core's `ADMIN_API.md` (the subscriptions activate body, the
+  notification send statuses, `is_test_send`, the audience validation, the
+  deep-link allow-list and the overview field names).
 
 ### CONSOLE-SEC: stored-XSS fix and console hardening
 
