@@ -106,6 +106,11 @@ var staticFiles = map[string]string{
 	"/js/pages/payouts.js":       "js/pages/payouts.js",
 	"/js/pages/subscriptions.js": "js/pages/subscriptions.js",
 	"/js/pages/tickets.js":       "js/pages/tickets.js",
+	// Bundled IBM Plex Sans Arabic (CONSOLE-V2 item 2), OFL license in web/fonts/.
+	"/fonts/IBMPlexSansArabic-Regular.woff2":  "fonts/IBMPlexSansArabic-Regular.woff2",
+	"/fonts/IBMPlexSansArabic-Medium.woff2":   "fonts/IBMPlexSansArabic-Medium.woff2",
+	"/fonts/IBMPlexSansArabic-SemiBold.woff2": "fonts/IBMPlexSansArabic-SemiBold.woff2",
+	"/fonts/IBMPlexSansArabic-Bold.woff2":     "fonts/IBMPlexSansArabic-Bold.woff2",
 }
 
 func staticHandler(webDir string) http.Handler {
@@ -142,6 +147,7 @@ func contentSecurityPolicy(r *http.Request) string {
 		"default-src 'self'",
 		"script-src 'self'",
 		"style-src 'self'",
+		"font-src 'self'",
 		"img-src 'self' blob: data:",
 		"connect-src " + connect,
 		"object-src 'none'",

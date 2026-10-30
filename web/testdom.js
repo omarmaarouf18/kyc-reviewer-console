@@ -150,6 +150,21 @@ class Element extends Node {
     };
   }
 
+  // dataset proxies data-* attributes (e.g. el.dataset.theme = 'dark').
+  get dataset() {
+    const self = this;
+    const key = (prop) => 'data-' + prop.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
+    return new Proxy({}, {
+      get(_, prop) { return self.getAttribute(key(prop)); },
+      set(_, prop, v) {
+        if (v === null || v === undefined || v === '') self.removeAttribute(key(prop));
+        else self.setAttribute(key(prop), String(v));
+        return true;
+      },
+      deleteProperty(_, prop) { self.removeAttribute(key(prop)); return true; },
+    });
+  }
+
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
   removeEventListener(type, fn) { this.listeners[type] = (this.listeners[type] || []).filter((f) => f !== fn); }
   dispatchEvent(ev) {
@@ -322,6 +337,8 @@ async function loadApp({ fetch, storage } = {}) {
   const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
   parseInto(doc, html);
   doc.parsedElements = [];
+  // The <html> child acts as documentElement (dir/lang/data-theme writes).
+  doc.documentElement = doc.querySelector('html') || doc;
 
   const store = storage || new Map();
   const sessionStorage = {

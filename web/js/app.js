@@ -15,6 +15,7 @@ export * from './core/format.js';
 export * from './core/api.js';
 export * from './core/i18n.js';
 export * from './core/router.js';
+export * from './core/theme.js';
 export {
   logout, markActivity, checkIdle,
   startIdleWatch, stopIdleWatch,

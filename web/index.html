@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -12,46 +12,52 @@
        (ADR-0021). -->
   <section id="login-view">
     <form id="login-form">
-      <h1>Reviewer Console</h1>
-      <p class="muted">KYC / KYB / KYE review — internal use only</p>
-      <label for="token">Reviewer token</label>
+      <h1 data-i18n="login.title">وحدة مراجعة الهوية</h1>
+      <p class="muted" data-i18n="login.subtitle">مراجعة KYC / KYB / KYE — للاستخدام الداخلي فقط</p>
+      <label for="token" data-i18n="login.token">رمز المراجع</label>
       <input type="password" id="token" autocomplete="off" required />
-      <button type="submit">Sign in</button>
+      <button type="submit" data-i18n="login.signIn">تسجيل الدخول</button>
       <p id="login-error" class="error" hidden></p>
     </form>
   </section>
 
   <section id="app-view" hidden>
-    <div class="top-bar">
+    <header id="console-topbar">
       <div class="brand">
-        <h1>Reviewer Console</h1>
-        <span class="muted">Identity & Account Governance</span>
+        <h1 data-i18n="shell.title">وحدة مراجعة الهوية</h1>
+        <span class="muted" data-i18n="shell.tagline">الحوكمة والهوية والحسابات</span>
       </div>
-      <div>
-        <button id="logout-btn" type="button" class="secondary">Sign out</button>
+      <div class="topbar-actions">
+        <button id="lang-toggle-btn" type="button" class="ghost" title="English">EN</button>
+        <button id="theme-toggle-btn" type="button" class="ghost" title="Switch to dark mode">☾</button>
+        <span id="reviewer-identity" class="muted" data-testid="reviewer-identity"></span>
+        <button id="logout-btn" type="button" class="secondary" data-i18n="shell.signOut">تسجيل الخروج</button>
       </div>
-    </div>
+    </header>
 
-    <nav class="tabs">
-      <button id="tab-queue-btn" class="tab-btn active" type="button">
-        Pending Submissions <span id="queue-badge" class="pill">0</span>
-      </button>
-      <button id="tab-accounts-btn" class="tab-btn" type="button">
-        Accounts Directory
-      </button>
-      <button id="tab-reconciliation-btn" class="tab-btn" type="button">
-        Disputes & Reconciliation <span id="reconciliation-badge" class="pill">0</span>
-      </button>
-      <button id="tab-subscriptions-btn" class="tab-btn" type="button">
-        Subscriptions <span id="subscriptions-badge" class="pill">0</span>
-      </button>
-      <button id="tab-tickets-btn" class="tab-btn" type="button">
-        Support Tickets <span id="tickets-badge" class="pill">0</span>
-      </button>
-      <button id="tab-payouts-btn" class="tab-btn" type="button">
-        Payout Requests <span id="payouts-badge" class="pill">0</span>
-      </button>
-    </nav>
+    <div class="shell">
+      <nav id="console-nav" class="side-nav" aria-label="Main">
+        <button id="tab-queue-btn" class="nav-item active" type="button">
+          <span data-i18n="nav.queue">قيد المراجعة</span><span id="queue-badge" class="pill">0</span>
+        </button>
+        <button id="tab-accounts-btn" class="nav-item" type="button">
+          <span data-i18n="nav.accounts">الحسابات</span>
+        </button>
+        <button id="tab-reconciliation-btn" class="nav-item" type="button">
+          <span data-i18n="nav.reconciliation">النزاعات والمطابقة</span><span id="reconciliation-badge" class="pill">0</span>
+        </button>
+        <button id="tab-subscriptions-btn" class="nav-item" type="button">
+          <span data-i18n="nav.subscriptions">الاشتراكات</span><span id="subscriptions-badge" class="pill">0</span>
+        </button>
+        <button id="tab-tickets-btn" class="nav-item" type="button">
+          <span data-i18n="nav.tickets">تذاكر الدعم</span><span id="tickets-badge" class="pill">0</span>
+        </button>
+        <button id="tab-payouts-btn" class="nav-item" type="button">
+          <span data-i18n="nav.payouts">طلبات الصرف</span><span id="payouts-badge" class="pill">0</span>
+        </button>
+      </nav>
+
+      <main id="console-main">
 
     <!-- TAB 1: Pending Queue -->
     <section id="queue-section">
@@ -320,6 +326,7 @@
         </div>
       </div>
     </section>
+      </main>
 
     <!-- Dialog: Review KYC Submission -->
     <dialog id="review-dialog">

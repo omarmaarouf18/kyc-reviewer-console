@@ -3,7 +3,10 @@
 // explicitly with a fresh DOM.
 
 import { api, tokenKey } from './core/api.js';
+import state from './core/state.js';
 import * as router from './core/router.js';
+import * as i18n from './core/i18n.js';
+import * as theme from './core/theme.js';
 import { logout, markActivity, checkIdle, startIdleWatch, wireActivityListeners } from './core/session.js';
 import { openDialog } from './core/ui/dialog.js';
 
@@ -27,6 +30,100 @@ const tabs = {
   tickets: { section: 'tickets-section', btn: 'tab-tickets-btn', load: () => tickets.loadTickets() },
   payouts: { section: 'payouts-section', btn: 'tab-payouts-btn', load: () => payouts.loadPayouts() },
 };
+
+// Shell strings (nav, header, login area). Page modules add their own areas
+// via addTranslations(); the fallback renders the key's last segment, so a
+// missing key can never vanish UI text.
+function addShellTranslations() {
+  i18n.addTranslations('nav', {
+    ar: {
+      queue: 'قيد المراجعة',
+      accounts: 'الحسابات',
+      reconciliation: 'النزاعات والمطابقة',
+      subscriptions: 'الاشتراكات',
+      tickets: 'تذاكر الدعم',
+      payouts: 'طلبات الصرف',
+    },
+    en: {
+      queue: 'Pending Submissions',
+      accounts: 'Accounts Directory',
+      reconciliation: 'Disputes & Reconciliation',
+      subscriptions: 'Subscriptions',
+      tickets: 'Support Tickets',
+      payouts: 'Payout Requests',
+    },
+  });
+  i18n.addTranslations('shell', {
+    ar: {
+      title: 'وحدة مراجعة الهوية',
+      tagline: 'الحوكمة والهوية والحسابات',
+      signOut: 'تسجيل الخروج',
+      identityFail: '',
+    },
+    en: {
+      title: 'Reviewer Console',
+      tagline: 'Identity & Account Governance',
+      signOut: 'Sign out',
+      identityFail: '',
+    },
+  });
+  i18n.addTranslations('login', {
+    ar: {
+      title: 'وحدة مراجعة الهوية',
+      subtitle: 'مراجعة KYC / KYB / KYE — للاستخدام الداخلي فقط',
+      token: 'رمز المراجع',
+      signIn: 'تسجيل الدخول',
+      invalidToken: 'رمز المراجع غير صالح.',
+      signInFailed: 'فشل تسجيل الدخول: {error}',
+    },
+    en: {
+      title: 'Reviewer Console',
+      subtitle: 'KYC / KYB / KYE review — internal use only',
+      token: 'Reviewer token',
+      signIn: 'Sign in',
+      invalidToken: 'Invalid reviewer token.',
+      signInFailed: 'Sign-in failed: {error}',
+    },
+  });
+}
+
+// translateShell fills every [data-i18n] element from the dictionary.
+export function translateShell() {
+  for (const node of document.querySelectorAll('[data-i18n]')) {
+    node.textContent = i18n.t(node.getAttribute('data-i18n'));
+  }
+}
+
+function refreshReviewerIdentityBox() {
+  const box = document.getElementById('reviewer-identity');
+  if (!box) return;
+  const who = state.currentReviewer;
+  const name = who && (who.username || who.display_name || who.email);
+  box.textContent = name ? `${name} (${who.role || 'reviewer'})` : '';
+}
+
+function wireLangToggle(btn) {
+  if (!btn) return;
+  const label = () => { btn.textContent = i18n.getLanguage() === 'ar' ? 'EN' : 'ع'; };
+  label();
+  btn.addEventListener('click', () => {
+    i18n.setLanguage(i18n.getLanguage() === 'ar' ? 'en' : 'ar');
+    label();
+    translateShell();
+  });
+}
+
+// initShell applies the saved language/theme, translates the static shell and
+// wires the two toggles. Runs on boot() only — tests re-run it explicitly.
+export function initShell() {
+  addShellTranslations();
+  i18n.setLanguage(i18n.detectLanguage());
+  translateShell();
+  wireLangToggle(document.getElementById('lang-toggle-btn'));
+  theme.applyTheme(theme.getTheme());
+  theme.wireThemeToggle(document.getElementById('theme-toggle-btn'));
+  refreshReviewerIdentityBox();
+}
 
 function wireTabs() {
   const navButtons = {};
@@ -88,13 +185,14 @@ async function onLoginSubmit(e) {
     sessionStorage.clear();
     const el = document.getElementById('login-error');
     el.textContent = err.message === 'unauthorized'
-      ? 'Invalid reviewer token.' : `Sign-in failed: ${err.message}`;
+      ? i18n.t('login.invalidToken')
+      : i18n.t('login.signInFailed', { error: err.message });
     el.hidden = false;
   }
 }
 
 // initReviewerIdentity fetches the reviewer profile once (used by the chat
-// bubbles and, later, the shell header).
+// bubbles and the shell header).
 export async function initReviewerIdentity() {
   try {
     const res = await api('/api/me');
@@ -102,6 +200,7 @@ export async function initReviewerIdentity() {
       state.currentReviewer = await res.json();
     }
   } catch { /* identity is cosmetic */ }
+  refreshReviewerIdentityBox();
 }
 
 // bootstrapSession resumes an existing session on page load (bottom of the
@@ -119,8 +218,10 @@ export function bootstrapSession() {
   }
 }
 
-// boot runs everything for a real browser load.
+// boot runs everything for a real browser load: language + theme first so the
+// first paint is already in the right direction and palette.
 export function boot() {
+  initShell();
   wireActivityListeners();
   wireAll();
   router.install();
