@@ -105,6 +105,7 @@ func TestStatic_OnlyUIAssetsServed(t *testing.T) {
 		"/js/pages/overview.js":                  http.StatusOK,
 		"/js/pages/jobs.js":                      http.StatusOK,
 		"/js/pages/services.js":                  http.StatusOK,
+		"/js/core/cod-banner.js":                 http.StatusOK,
 		"/fonts/IBMPlexSansArabic-Regular.woff2": http.StatusOK,
 		"/fonts/IBMPlexSansArabic-Bold.woff2":    http.StatusOK,
 		// The OFL license and any other file under web/fonts/ stay unserved.

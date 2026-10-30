@@ -5,6 +5,7 @@
 import { api, isUnauthorized } from '../core/api.js';
 import { el, show, hide } from '../core/dom.js';
 import { addTranslations, t } from '../core/i18n.js';
+import { updateCodBanner } from '../core/cod-banner.js';
 
 // Overview strings: labels for the stat cards, AR first (RTL is the default).
 addTranslations('overview', {
@@ -130,6 +131,10 @@ export async function loadOverview() {
   for (const [key, labelKey] of cards) {
     grid.appendChild(statCard(key, t(labelKey), data[key]));
   }
+
+  // The shell banner mirrors the stuck-COD counter (a figure the backend
+  // could not compute stays hidden).
+  updateCodBanner(data.stuck_cod_jobs, 'overview');
 
   const jobs = typeof data.jobs_today === 'object' && data.jobs_today !== null && !Array.isArray(data.jobs_today)
     ? data.jobs_today

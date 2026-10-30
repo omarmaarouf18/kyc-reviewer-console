@@ -424,6 +424,22 @@ h2 { font-size: 1.15rem; margin: 0; }
 .error { color: var(--danger); font-size: 0.875rem; }
 .banner { background: var(--error-bg); color: var(--text); padding: 0.5rem 0.75rem; border-radius: 12px; margin: 0.75rem 0; }
 
+/* Shell-level reminder (stuck COD jobs): a warning banner with an action. */
+.banner-warning {
+  background: var(--warning-bg);
+  color: var(--text);
+  border: 1px solid var(--warning);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.banner-warning .btn-sm {
+  white-space: nowrap;
+}
+
 /* ---- Segmented switch ------------------------------------------------------ */
 
 .segmented {

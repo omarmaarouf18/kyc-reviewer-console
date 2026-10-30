@@ -68,6 +68,14 @@
 
       <main id="console-main">
 
+        <!-- Stuck COD jobs waiting for an escrow reconciliation (shell level,
+             visible on every page). -->
+        <div id="cod-banner" class="banner banner-warning" hidden>
+          <span id="cod-banner-text"></span>
+          <button id="cod-banner-action" type="button" class="btn-sm secondary"
+            data-i18n="codBanner.action">عرض المهام</button>
+        </div>
+
     <!-- TAB 0: Overview -->
     <section id="overview-section">
       <header>
@@ -250,8 +258,8 @@
     <!-- TAB 4: Disputes & Reconciliation (ADR-0023) -->
     <section id="reconciliation-section" hidden>
       <header>
-        <h2>Disputes & Escrow Reconciliation</h2>
-        <button id="refresh-reconciliation-btn" type="button">Refresh Disputes</button>
+        <h2 data-i18n="disputes.title">النزاعات والمطابقة</h2>
+        <button id="refresh-reconciliation-btn" type="button" data-i18n="disputes.refresh">تحديث</button>
       </header>
 
       <p id="reconciliation-error" class="error banner" hidden></p>
@@ -259,13 +267,13 @@
       <table id="reconciliation-table">
         <thead>
           <tr>
-            <th>Job</th>
-            <th>Service</th>
-            <th>Distance Discrepancy</th>
-            <th>Locked Escrow</th>
-            <th>Payment</th>
-            <th>Flag Reason</th>
-            <th>Action</th>
+            <th data-i18n="disputes.col.job">المهمة</th>
+            <th data-i18n="disputes.col.service">الخدمة</th>
+            <th data-i18n="disputes.col.distance">فرق المسافة</th>
+            <th data-i18n="disputes.col.escrow">الضمان المحجوز</th>
+            <th data-i18n="disputes.col.payment">الدفع</th>
+            <th data-i18n="disputes.col.reason">سبب العلامة</th>
+            <th data-i18n="disputes.col.action">إجراء</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -416,8 +424,8 @@
     <!-- TAB 7: Support Tickets (ADR-0023 Module B) -->
     <section id="tickets-section" hidden>
       <header>
-        <h2>Support & Complaint Tickets</h2>
-        <button id="refresh-tickets-btn" type="button">Refresh Tickets</button>
+        <h2 data-i18n="tickets.title">تذاكر الدعم</h2>
+        <button id="refresh-tickets-btn" type="button" data-i18n="tickets.refresh">تحديث</button>
       </header>
 
       <form id="tickets-filter-form" class="toolbar">
@@ -428,8 +436,8 @@
           <option value="assigned">Assigned</option>
           <option value="resolved">Resolved</option>
         </select>
-        <button type="submit">Filter</button>
-        <button type="button" id="tickets-reset-btn" class="secondary">Reset</button>
+        <button type="submit" data-i18n="tickets.filter">بحث</button>
+        <button type="button" id="tickets-reset-btn" class="secondary" data-i18n="tickets.reset">مسح</button>
       </form>
 
       <p id="tickets-error" class="error banner" hidden></p>
@@ -437,13 +445,13 @@
       <table id="tickets-table">
         <thead>
           <tr>
-            <th>Ticket ID</th>
-            <th>Customer ID</th>
-            <th>Context / Subject</th>
-            <th>Status</th>
-            <th>Assigned Agent</th>
-            <th>Created At</th>
-            <th>Action</th>
+            <th data-i18n="tickets.col.id">رقم التذكرة</th>
+            <th data-i18n="tickets.col.customer">معرف العميل</th>
+            <th data-i18n="tickets.col.subject">السياق / الموضوع</th>
+            <th data-i18n="tickets.col.status">الحالة</th>
+            <th data-i18n="tickets.col.agent">المندوب المسؤول</th>
+            <th data-i18n="tickets.col.created">تاريخ الإنشاء</th>
+            <th data-i18n="tickets.col.action">إجراء</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -491,8 +499,8 @@
     <!-- TAB 6: Payout Requests -->
     <section id="payouts-section" hidden>
       <header>
-        <h2>Tenant Payout Requests</h2>
-        <button id="refresh-payouts-btn" type="button">Refresh Payouts</button>
+        <h2 data-i18n="payouts.title">طلبات الصرف</h2>
+        <button id="refresh-payouts-btn" type="button" data-i18n="payouts.refresh">تحديث</button>
       </header>
 
       <form id="payouts-filter-form" class="toolbar">
@@ -503,8 +511,8 @@
           <option value="paid">Paid</option>
           <option value="rejected">Rejected</option>
         </select>
-        <button type="submit">Filter</button>
-        <button type="button" id="payouts-reset-btn" class="secondary">Reset</button>
+        <button type="submit" data-i18n="payouts.filter">بحث</button>
+        <button type="button" id="payouts-reset-btn" class="secondary" data-i18n="payouts.reset">مسح</button>
       </form>
 
       <p id="payouts-error" class="error banner" hidden></p>
@@ -512,11 +520,11 @@
       <table id="payouts-table">
         <thead>
           <tr>
-            <th>Payout ID</th>
-            <th>Tenant ID</th>
-            <th>Amount</th>
-            <th>Method</th>
-            <th>Status</th>
+            <th data-i18n="payouts.col.id">معرف الطلب</th>
+            <th data-i18n="payouts.col.tenant">معرف التاجر</th>
+            <th data-i18n="payouts.col.amount">المبلغ</th>
+            <th data-i18n="payouts.col.method">الطريقة</th>
+            <th data-i18n="payouts.col.status">الحالة</th>
             <th>Requested At</th>
             <th>Action / Notes</th>
           </tr>
@@ -612,20 +620,20 @@
 
     <!-- Dialog: Resolve Reconciliation Dispute (ADR-0023) -->
     <dialog id="resolve-dispute-dialog">
-      <h2>Resolve Dispute / Reconciliation</h2>
+      <h2 data-i18n="disputes.resolve.title">حل النزاع</h2>
       <p id="resolve-dispute-target" class="muted"></p>
       <div id="resolve-dispute-details" class="dispute-details-card"></div>
       <div class="decision-group">
-        <label><input type="radio" name="dispute-decision" value="release_to_employee" checked /> <strong>Release Funds to Courier / Tenant</strong> (Mark Completed)</label>
-        <label><input type="radio" name="dispute-decision" value="refund_to_customer" /> <strong>Refund Escrow to Customer</strong> (Mark Cancelled)</label>
+        <label><input type="radio" name="dispute-decision" value="release_to_employee" checked /> <strong data-i18n="disputes.resolve.release">صرف الأموال للمندوب / التاجر</strong> <span data-i18n="disputes.resolve.markCompleted">(تحديد كمكتملة)</span></label>
+        <label><input type="radio" name="dispute-decision" value="refund_to_customer" /> <strong data-i18n="disputes.resolve.refund">استرداد الضمان للعميل</strong> <span data-i18n="disputes.resolve.markCancelled">(تحديد ملغاة)</span></label>
       </div>
-      <label for="resolve-dispute-reason">Reason for resolution decision (required) <span class="required">*</span></label>
+      <label for="resolve-dispute-reason"><span data-i18n="disputes.resolve.reason">سبب القرار</span> <span class="required">*</span></label>
       <textarea id="resolve-dispute-reason" maxlength="1000" rows="3" required
         placeholder="Explain why this dispute is being resolved with this decision"></textarea>
       <p id="resolve-dispute-error" class="error" hidden></p>
       <menu>
-        <button id="resolve-dispute-cancel" type="button" class="secondary">Cancel</button>
-        <button id="resolve-dispute-submit" type="button">Confirm Resolution</button>
+        <button id="resolve-dispute-cancel" type="button" class="secondary" data-i18n="disputes.resolve.close">Cancel</button>
+        <button id="resolve-dispute-submit" type="button" data-i18n="disputes.resolve.submit">Confirm Resolution</button>
       </menu>
     </dialog>
 
@@ -679,31 +687,31 @@
 
     <!-- Dialog: Resolve Support Ticket (ADR-0023 Module B) -->
     <dialog id="resolve-ticket-dialog">
-      <h2>Resolve Support Ticket</h2>
+      <h2 data-i18n="tickets.resolve.title">حل تذكرة الدعم</h2>
       <p id="resolve-ticket-target" class="muted"></p>
       <div id="resolve-ticket-details" class="dispute-details-card"></div>
-      <label for="resolve-ticket-note">Resolution Note / Action Taken (required) <span class="required">*</span></label>
+      <label for="resolve-ticket-note"><span data-i18n="tickets.resolve.note">ملاحظة الحل / الإجراء المتخذ</span> <span class="required">*</span></label>
       <textarea id="resolve-ticket-note" maxlength="1000" rows="3" required
         placeholder="Document the resolution, customer follow-up, or root cause"></textarea>
       <p id="resolve-ticket-error" class="error" hidden></p>
       <menu>
-        <button id="resolve-ticket-cancel" type="button" class="secondary">Cancel</button>
-        <button id="resolve-ticket-submit" type="button">Confirm Resolve</button>
+        <button id="resolve-ticket-cancel" type="button" class="secondary" data-i18n="tickets.resolve.close">Cancel</button>
+        <button id="resolve-ticket-submit" type="button" data-i18n="tickets.resolve.submit">Confirm Resolve</button>
       </menu>
     </dialog>
 
     <!-- Dialog: Reject Payout Request -->
     <dialog id="reject-payout-modal">
-      <h2>Reject Payout Request</h2>
+      <h2 data-i18n="payouts.reject.title">رفض طلب الصرف</h2>
       <p id="reject-payout-target" class="muted"></p>
-      <p class="warning-callout">Rejecting will restore the tenant's wallet balance and record a compensation ledger entry.</p>
-      <label for="reject-payout-reason">Reason for rejection (required) <span class="required">*</span></label>
+      <p class="warning-callout" data-i18n="payouts.reject.warning">Rejecting will restore the tenant's wallet balance and record a compensation ledger entry.</p>
+      <label for="reject-payout-reason"><span data-i18n="payouts.reject.reason">سبب الرفض</span> <span class="required">*</span></label>
       <textarea id="reject-payout-reason" maxlength="1000" rows="3" required
         placeholder="Explain why this payout request is being rejected (e.g. invalid banking details)"></textarea>
       <p id="reject-payout-error" class="error" hidden></p>
       <menu>
-        <button id="reject-payout-cancel" type="button" class="secondary">Cancel</button>
-        <button id="reject-payout-submit" type="button" class="danger">Confirm Rejection</button>
+        <button id="reject-payout-cancel" type="button" class="secondary" data-i18n="payouts.reject.close">Cancel</button>
+        <button id="reject-payout-submit" type="button" class="danger" data-i18n="payouts.reject.submit">Confirm Rejection</button>
       </menu>
     </dialog>
 

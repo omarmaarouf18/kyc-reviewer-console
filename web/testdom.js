@@ -56,6 +56,17 @@ class Node {
     for (const c of [...this.childNodes]) this.removeChild(c);
     this.append(...nodes);
   }
+  // contains reports whether the node is this node or one of its descendants
+  // (the toast host checks it before reusing the cached host element).
+  contains(node) {
+    if (!node) return false;
+    if (node === this) return true;
+    return this.childNodes.some((c) => (c instanceof Element ? c.contains(node) : false));
+  }
+  // remove detaches the node from its parent (toast auto-dismiss).
+  remove() {
+    if (this.parentNode) this.parentNode.removeChild(this);
+  }
   get textContent() {
     return this.childNodes.map((c) => c.textContent).join('');
   }

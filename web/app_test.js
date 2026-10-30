@@ -56,6 +56,9 @@ test('submitResolveTicket() catches 503 and surfaces in-app error without crashi
       message: 'Authentication service is temporarily unavailable. Please try again later.',
     }, 503),
   });
+  // The console is Arabic by default; these assertions read the English
+  // labels, so the language is pinned explicitly.
+  env.ctx.setLanguage('en');
   env.ctx.openResolveTicketDialog({ ticket_id: 'tkt-12345', customer_id: 'c1', created_at: new Date().toISOString() });
   document.getElementById('resolve-ticket-note').value = 'Investigated customer issue';
 
@@ -79,6 +82,7 @@ test('submitResolveTicket() catches 401 gracefully without unhandled promise rej
     fetch: async () => (armed ? jsonResponse({ error: 'unauthorized' }, 401) : jsonResponse([])),
   });
   await new Promise((resolve) => setImmediate(resolve));
+  env.ctx.setLanguage('en');
   env.ctx.openResolveTicketDialog({ ticket_id: 'tkt-123', customer_id: 'c1', created_at: new Date().toISOString() });
   document.getElementById('resolve-ticket-note').value = 'Note';
   armed = true;

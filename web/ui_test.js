@@ -30,6 +30,9 @@ const queueItem = {
 
 test('dispute dialog shows only fields the queue item has', async () => {
   const env = await loadApp();
+  // The console is Arabic by default; these assertions read the English
+  // labels, so the language is pinned explicitly.
+  env.ctx.setLanguage('en');
   env.ctx.openResolveDisputeDialog(queueItem);
   const text = env.doc.getElementById('resolve-dispute-details').textContent;
   assert.doesNotMatch(text, /undefined|\(none\)|Route|Category|→/);

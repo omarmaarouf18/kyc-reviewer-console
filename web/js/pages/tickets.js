@@ -4,11 +4,127 @@
 import { api, isUnauthorized, tokenKey, WS_AUTH_PROTOCOL } from '../core/api.js';
 import { el, show, hide, detailRow } from '../core/dom.js';
 import { upper, formatBytes } from '../core/format.js';
+import { addTranslations, t } from '../core/i18n.js';
 import state from '../core/state.js';
 import { safeBlobUrl, openDocument } from './kyc.js';
 import { openUserDocsDialog } from './kycdocs.js';
 import { openDialog, closeDialog } from '../core/ui/dialog.js';
 import { tableController, changePage } from '../core/ui/table.js';
+import { toast } from '../core/ui/toast.js';
+import { updateCodBanner } from '../core/cod-banner.js';
+
+addTranslations('tickets', {
+  ar: {
+    title: 'تذاكر الدعم والشكاوى',
+    refresh: 'تحديث',
+    filter: 'بحث',
+    reset: 'مسح',
+    empty: 'لا توجد تذاكر دعم.',
+    loadFailed: 'فشل تحميل التذاكر: {error}',
+    col: {
+      id: 'رقم التذكرة',
+      customer: 'معرف العميل',
+      subject: 'السياق / الموضوع',
+      status: 'الحالة',
+      agent: 'المندوب المسؤول',
+      created: 'تاريخ الإنشاء',
+      action: 'إجراء',
+    },
+    subjectFallback: 'شكوى / دعم',
+    general: 'عام',
+    unassigned: '(غير معيّن)',
+    accept: 'استلام التذكرة',
+    accepting: 'جارٍ الاستلام…',
+    openChat: 'فتح المحادثة',
+    viewChat: 'عرض المحادثة',
+    resolve: 'حل…',
+    resolving: 'جارٍ الحل…',
+    resolvedBy: 'بواسطة {who}',
+    resolved: 'تم الحل',
+    accepted: 'تم استلام التذكرة.',
+    resolvedToast: 'تم حل التذكرة.',
+    acceptFailed: 'فشل استلام التذكرة: {error}',
+    chat: {
+      title: 'محادثة التذكرة',
+      support: 'دعم',
+      customer: 'العميل: {id} | الحالة: {status}',
+      resolved: 'تم الحل',
+      resolve: 'حل التذكرة…',
+      loading: 'جارٍ تحميل سجل المحادثة…',
+      empty: 'لا توجد رسائل في هذه التذكرة بعد.',
+      historyFailed: 'فشل تحميل سجل المحادثة: {error}',
+      resolvedPlaceholder: 'تم حل هذه التذكرة.',
+      placeholder: 'اكتب رسالة للعميل…',
+    },
+    resolve: {
+      title: 'حل تذكرة الدعم',
+      target: 'تذكرة {id} (العميل: {customer})',
+      context: 'معرف السياق',
+      agent: 'المندوب المسؤول',
+      created: 'تاريخ الإنشاء',
+      note: 'ملاحظة الحل / الإجراء المتخذ',
+      submit: 'تأكيد الحل',
+      close: 'إلغاء',
+      required: 'ملاحظة الحل مطلوبة.',
+      failed: 'فشل حل التذكرة: {error}',
+    },
+  },
+  en: {
+    title: 'Support & complaint tickets',
+    refresh: 'Refresh',
+    filter: 'Filter',
+    reset: 'Reset',
+    empty: 'No support tickets found.',
+    loadFailed: 'Failed to load tickets: {error}',
+    col: {
+      id: 'Ticket ID',
+      customer: 'Customer ID',
+      subject: 'Context / subject',
+      status: 'Status',
+      agent: 'Assigned agent',
+      created: 'Created at',
+      action: 'Action',
+    },
+    subjectFallback: 'Complaint / support',
+    general: 'general',
+    unassigned: '(unassigned)',
+    accept: 'Accept ticket',
+    accepting: 'Accepting…',
+    openChat: 'Open chat',
+    viewChat: 'View chat',
+    resolve: 'Resolve…',
+    resolving: 'Resolving…',
+    resolvedBy: 'By {who}',
+    resolved: 'Resolved',
+    accepted: 'The ticket was accepted.',
+    resolvedToast: 'The ticket was resolved.',
+    acceptFailed: 'Failed to accept the ticket: {error}',
+    chat: {
+      title: 'Ticket chat',
+      support: 'Support',
+      customer: 'Customer: {id} | Status: {status}',
+      resolved: 'Resolved',
+      resolve: 'Resolve ticket…',
+      loading: 'Loading conversation history…',
+      empty: 'No messages in this ticket yet.',
+      historyFailed: 'Failed to load the chat history: {error}',
+      resolvedPlaceholder: 'This ticket has been resolved.',
+      placeholder: 'Type a message to the customer…',
+    },
+    resolve: {
+      title: 'Resolve support ticket',
+      target: 'Ticket {id} (Customer: {customer})',
+      context: 'Context ID',
+      agent: 'Assigned agent',
+      created: 'Created',
+      note: 'Resolution note / action taken',
+      submit: 'Confirm Resolve',
+      close: 'Cancel',
+      required: 'A resolution note is required to resolve this ticket.',
+      failed: 'Failed to resolve the ticket: {error}',
+    },
+  },
+});
 
 export async function loadTickets() {
   hide(document.getElementById('tickets-error'));
@@ -27,13 +143,16 @@ export async function loadTickets() {
   } catch (e) {
     if (isUnauthorized(e)) return;
     const err = document.getElementById('tickets-error');
-    err.textContent = `Failed to load tickets: ${e.message}`;
-    show(err);
+    if (err) {
+      err.textContent = t('tickets.loadFailed', { error: e.message });
+      show(err);
+    }
     return;
   }
 
-  const tickets = data.tickets || [];
+  const tickets = Array.isArray(data.tickets) ? data.tickets : [];
   st.total = data.total || 0;
+  st.rows = tickets;
 
   const countBadge = document.getElementById('tickets-badge');
   if (countBadge) countBadge.textContent = `${data.total || tickets.length}`;
@@ -49,90 +168,92 @@ export async function loadTickets() {
   table.renderRows({
     rows: tickets,
     colCount: 7,
-    emptyText: 'No support tickets found.',
+    emptyText: t('tickets.empty'),
     renderRow: ticketRow,
   });
 
   table.updatePagination({ items: tickets.length, total: st.total, page: st.page, limit: st.limit, countNoun: 'tickets' });
 }
 
-function ticketRow(t) {
+function ticketRow(ticket) {
   const tr = document.createElement('tr');
 
   // Ticket ID
   const idTd = document.createElement('td');
-  idTd.appendChild(el('strong', '', `#${String(t.ticket_id).slice(-8)}`));
+  idTd.appendChild(el('strong', '', `#${String(ticket.ticket_id).slice(-8)}`));
   idTd.appendChild(el('br'));
-  idTd.appendChild(el('code', 'id-tag', t.ticket_id));
+  idTd.appendChild(el('code', 'id-tag', ticket.ticket_id));
   tr.appendChild(idTd);
 
   // Customer ID
   const custTd = document.createElement('td');
-  custTd.appendChild(el('code', '', t.customer_id));
+  custTd.appendChild(el('code', '', ticket.customer_id));
   tr.appendChild(custTd);
 
   // Context / Subject
   const contextTd = document.createElement('td');
-  contextTd.appendChild(el('strong', '', t.subject || 'Complaint / Support'));
+  contextTd.appendChild(el('strong', '', ticket.subject || t('tickets.subjectFallback')));
   contextTd.appendChild(el('br'));
-  contextTd.appendChild(el('span', 'muted small', t.context_id || 'general'));
+  contextTd.appendChild(el('span', 'muted small', ticket.context_id || t('tickets.general')));
   tr.appendChild(contextTd);
 
   // Status
   const statusTd = document.createElement('td');
   let badgeClass = 'badge-pending';
-  if (t.status === 'assigned') badgeClass = 'badge-assigned';
-  else if (t.status === 'resolved') badgeClass = 'badge-resolved';
-  statusTd.appendChild(el('span', `badge ${badgeClass}`, upper(t.status, 'pending')));
+  if (ticket.status === 'assigned') badgeClass = 'badge-assigned';
+  else if (ticket.status === 'resolved') badgeClass = 'badge-resolved';
+  statusTd.appendChild(el('span', `badge ${badgeClass}`, upper(ticket.status, 'pending')));
   tr.appendChild(statusTd);
 
   // Assigned Agent
   const agentTd = document.createElement('td');
-  agentTd.appendChild(t.assigned_agent_id ? el('code', '', t.assigned_agent_id) : el('span', 'muted', '(unassigned)'));
+  agentTd.appendChild(ticket.assigned_agent_id ? el('code', '', ticket.assigned_agent_id) : el('span', 'muted', t('tickets.unassigned')));
   tr.appendChild(agentTd);
 
   // Created At
   const createdTd = document.createElement('td');
   createdTd.className = 'small';
-  createdTd.textContent = t.created_at ? new Date(t.created_at).toLocaleString() : '—';
+  createdTd.textContent = ticket.created_at ? new Date(ticket.created_at).toLocaleString() : '—';
   tr.appendChild(createdTd);
 
   // Action
   const actionTd = document.createElement('td');
-  if (t.status === 'pending') {
+  if (ticket.status === 'pending') {
     const acceptBtn = document.createElement('button');
     acceptBtn.type = 'button';
     acceptBtn.className = 'btn-sm';
-    acceptBtn.textContent = 'Accept Ticket';
-    acceptBtn.addEventListener('click', async () => acceptTicket(acceptBtn, t));
+    acceptBtn.textContent = t('tickets.accept');
+    acceptBtn.addEventListener('click', async () => acceptTicket(acceptBtn, ticket));
     actionTd.appendChild(acceptBtn);
-  } else if (t.status === 'assigned') {
+  } else if (ticket.status === 'assigned') {
     const chatBtn = document.createElement('button');
     chatBtn.type = 'button';
     chatBtn.className = 'btn-sm secondary';
-    chatBtn.textContent = 'Open Chat';
+    chatBtn.textContent = t('tickets.openChat');
     chatBtn.style.marginRight = '0.35rem';
-    chatBtn.addEventListener('click', () => openTicketChat(t));
+    chatBtn.addEventListener('click', () => openTicketChat(ticket));
     actionTd.appendChild(chatBtn);
 
     const resolveBtn = document.createElement('button');
     resolveBtn.type = 'button';
     resolveBtn.className = 'btn-sm';
-    resolveBtn.textContent = 'Resolve…';
-    resolveBtn.addEventListener('click', () => openResolveTicketDialog(t));
+    resolveBtn.textContent = t('tickets.resolve');
+    resolveBtn.addEventListener('click', () => openResolveTicketDialog(ticket));
     actionTd.appendChild(resolveBtn);
   } else {
     const chatBtn = document.createElement('button');
     chatBtn.type = 'button';
     chatBtn.className = 'btn-sm secondary';
-    chatBtn.textContent = 'View Chat';
+    chatBtn.textContent = t('tickets.viewChat');
     chatBtn.style.marginRight = '0.35rem';
-    chatBtn.addEventListener('click', () => openTicketChat(t));
+    chatBtn.addEventListener('click', () => openTicketChat(ticket));
     actionTd.appendChild(chatBtn);
 
     const noteSpan = document.createElement('span');
     noteSpan.className = 'muted small';
-    noteSpan.textContent = t.resolved_by ? 'By ' + t.resolved_by : 'Resolved';
+    noteSpan.textContent = ticket.resolved_by
+      ? t('tickets.resolvedBy', { who: ticket.resolved_by })
+      : t('tickets.resolved');
     actionTd.appendChild(noteSpan);
   }
   tr.appendChild(actionTd);
@@ -140,39 +261,43 @@ function ticketRow(t) {
   return tr;
 }
 
-async function acceptTicket(acceptBtn, t) {
+async function acceptTicket(acceptBtn, ticket) {
   try {
     acceptBtn.disabled = true;
-    acceptBtn.textContent = 'Accepting...';
+    acceptBtn.textContent = t('tickets.accepting');
     const res = await api('/api/tickets/accept', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticket_id: t.ticket_id }),
+      body: JSON.stringify({ ticket_id: ticket.ticket_id }),
     });
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
       throw new Error(errJson.error || `HTTP ${res.status}`);
     }
     const data = await res.json();
-    const updated = data.ticket || { ...t, status: 'assigned' };
+    const updated = data.ticket || { ...ticket, status: 'assigned' };
+    toast(t('tickets.accepted'), 'ok');
     await loadTickets();
     openTicketChat(updated);
   } catch (e) {
     if (isUnauthorized(e)) return;
-    alert(`Failed to accept ticket: ${e.message}`);
+    alert(t('tickets.acceptFailed', { error: e.message }));
     acceptBtn.disabled = false;
-    acceptBtn.textContent = 'Accept Ticket';
+    acceptBtn.textContent = t('tickets.accept');
   }
 }
 
 export function openResolveTicketDialog(ticket) {
   state.targetTicket = ticket;
-  document.getElementById('resolve-ticket-target').textContent = `Ticket ${ticket.ticket_id} (Customer: ${ticket.customer_id})`;
+  const target = document.getElementById('resolve-ticket-target');
+  if (target) {
+    target.textContent = t('tickets.resolve.target', { id: ticket.ticket_id, customer: ticket.customer_id });
+  }
   const detailsEl = document.getElementById('resolve-ticket-details');
   detailsEl.textContent = '';
-  detailsEl.appendChild(detailRow('Context ID', ticket.context_id || 'none', 'code'));
-  detailsEl.appendChild(detailRow('Assigned Agent', ticket.assigned_agent_id || 'none', 'code'));
-  detailsEl.appendChild(detailRow('Created', new Date(ticket.created_at).toLocaleString(), 'span'));
+  detailsEl.appendChild(detailRow(t('tickets.resolve.context'), ticket.context_id || 'none', 'code'));
+  detailsEl.appendChild(detailRow(t('tickets.resolve.agent'), ticket.assigned_agent_id || 'none', 'code'));
+  detailsEl.appendChild(detailRow(t('tickets.resolve.created'), new Date(ticket.created_at).toLocaleString(), 'span'));
   document.getElementById('resolve-ticket-note').value = '';
   hide(document.getElementById('resolve-ticket-error'));
   openDialog('resolve-ticket-dialog');
@@ -183,8 +308,10 @@ export async function submitResolveTicket() {
   const note = document.getElementById('resolve-ticket-note').value.trim();
   if (!note) {
     const err = document.getElementById('resolve-ticket-error');
-    err.textContent = 'A resolution note is required to resolve this ticket.';
-    show(err);
+    if (err) {
+      err.textContent = t('tickets.resolve.required');
+      show(err);
+    }
     return;
   }
 
@@ -192,7 +319,7 @@ export async function submitResolveTicket() {
   try {
     if (submitBtn) {
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Resolving...';
+      submitBtn.textContent = t('tickets.resolving');
     }
 
     const res = await api('/api/tickets/resolve', {
@@ -220,6 +347,7 @@ export async function submitResolveTicket() {
     }
 
     closeDialog('resolve-ticket-dialog');
+    toast(t('tickets.resolvedToast'), 'ok');
     if (state.activeChatTicket && state.targetTicket && state.activeChatTicket.ticket_id === state.targetTicket.ticket_id) {
       state.activeChatTicket.status = 'resolved';
       const resolveBtn = document.getElementById('chat-resolve-btn');
@@ -240,7 +368,7 @@ export async function submitResolveTicket() {
   } catch (e) {
     if (isUnauthorized(e)) return;
     const err = document.getElementById('resolve-ticket-error');
-    const msg = `Failed to resolve ticket: ${e.message || 'Network error. Please try again.'}`;
+    const msg = t('tickets.resolve.failed', { error: e.message || 'Network error' });
     if (err) {
       err.textContent = msg;
       show(err);
@@ -250,7 +378,7 @@ export async function submitResolveTicket() {
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
-      submitBtn.textContent = 'Confirm Resolve';
+      submitBtn.textContent = t('tickets.resolve.submit');
     }
   }
 }
@@ -269,16 +397,23 @@ export async function openTicketChat(ticket) {
   const card = document.getElementById('ticket-chat-card');
   show(card);
 
-  document.getElementById('chat-ticket-title').textContent = `Ticket #${ticket.ticket_id.slice(-8)} — ${ticket.subject || 'Support'}`;
-  document.getElementById('chat-ticket-meta').textContent = `Customer: ${ticket.customer_id} | Status: ${(ticket.status || '').toUpperCase()}`;
+  const title = document.getElementById('chat-ticket-title');
+  if (title) title.textContent = `Ticket #${ticket.ticket_id.slice(-8)} — ${ticket.subject || t('tickets.chat.support')}`;
+  const meta = document.getElementById('chat-ticket-meta');
+  if (meta) {
+    meta.textContent = t('tickets.chat.customer', {
+      id: ticket.customer_id,
+      status: (ticket.status || '').toUpperCase(),
+    });
+  }
 
   const resolveBtn = document.getElementById('chat-resolve-btn');
   if (ticket.status === 'resolved') {
     resolveBtn.disabled = true;
-    resolveBtn.textContent = 'Resolved';
+    resolveBtn.textContent = t('tickets.chat.resolved');
   } else {
     resolveBtn.disabled = false;
-    resolveBtn.textContent = 'Resolve Ticket…';
+    resolveBtn.textContent = t('tickets.chat.resolve');
     resolveBtn.onclick = () => openResolveTicketDialog(ticket);
   }
 
@@ -297,17 +432,17 @@ export async function openTicketChat(ticket) {
   const sendBtn = document.getElementById('ticket-chat-send-btn');
   if (ticket.status === 'resolved') {
     chatInput.disabled = true;
-    chatInput.placeholder = 'This ticket has been resolved.';
+    chatInput.placeholder = t('tickets.chat.resolvedPlaceholder');
     sendBtn.disabled = true;
   } else {
     chatInput.disabled = false;
-    chatInput.placeholder = 'Type a message to the customer...';
+    chatInput.placeholder = t('tickets.chat.placeholder');
     sendBtn.disabled = false;
   }
 
   const messagesContainer = document.getElementById('ticket-chat-messages');
   messagesContainer.textContent = '';
-  messagesContainer.appendChild(el('div', 'muted small chat-notice', 'Loading conversation history...'));
+  messagesContainer.appendChild(el('div', 'muted small chat-notice', t('tickets.chat.loading')));
 
   // 1. Fetch channel history
   try {
@@ -319,13 +454,13 @@ export async function openTicketChat(ticket) {
         const sorted = [...msgs].sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
         for (const m of sorted) appendChatMessage(m);
       } else {
-        messagesContainer.appendChild(el('div', 'muted small chat-notice', 'No messages in this ticket yet.'));
+        messagesContainer.appendChild(el('div', 'muted small chat-notice', t('tickets.chat.empty')));
       }
     }
   } catch (err) {
     if (isUnauthorized(err)) return;
     messagesContainer.textContent = '';
-    messagesContainer.appendChild(el('div', 'error chat-notice', `Failed to load chat history: ${err.message}`));
+    messagesContainer.appendChild(el('div', 'error chat-notice', t('tickets.chat.historyFailed', { error: err.message })));
   }
 
   // 2. Connect WebSocket
@@ -442,12 +577,13 @@ export function appendChatMessage(msg) {
 export async function refreshBadgeCounts() {
   if (!sessionStorage.getItem(tokenKey)) return;
   try {
-    const [queueRes, reconRes, subsRes, ticketsRes, payoutsRes] = await Promise.allSettled([
+    const [queueRes, reconRes, subsRes, ticketsRes, payoutsRes, codRes] = await Promise.allSettled([
       api('/api/queue').then(r => r.ok ? r.json() : []),
       api('/api/reconciliation/queue?page=1&limit=1').then(r => r.ok ? r.json() : {}),
       api('/api/subscriptions/queue?page=1&limit=1').then(r => r.ok ? r.json() : {}),
       api('/api/tickets?page=1&limit=1').then(r => r.ok ? r.json() : {}),
       api('/api/payouts?status=requested&page=1&limit=1').then(r => r.ok ? r.json() : {}),
+      api('/api/overview').then(r => r.ok ? r.json() : {}),
     ]);
 
     if (queueRes.status === 'fulfilled' && Array.isArray(queueRes.value)) {
@@ -470,6 +606,11 @@ export async function refreshBadgeCounts() {
     if (payoutsRes.status === 'fulfilled' && payoutsRes.value) {
       const b = document.getElementById('payouts-badge');
       if (b) b.textContent = `${payoutsRes.value.total ?? (payoutsRes.value.payouts?.length || 0)}`;
+    }
+    // The shell banner mirrors the stuck-COD counter (the overview endpoint
+    // only returns counts — it writes no admin_audit record).
+    if (codRes.status === 'fulfilled' && codRes.value) {
+      updateCodBanner(codRes.value.stuck_cod_jobs, 'refresh');
     }
   } catch {
     // Non-critical background count sync

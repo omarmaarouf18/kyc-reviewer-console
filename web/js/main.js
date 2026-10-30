@@ -9,6 +9,7 @@ import * as i18n from './core/i18n.js';
 import * as theme from './core/theme.js';
 import { logout, markActivity, checkIdle, startIdleWatch, wireActivityListeners } from './core/session.js';
 import { openDialog } from './core/ui/dialog.js';
+import * as codBanner from './core/cod-banner.js';
 
 import * as overview from './pages/overview.js';
 import * as kyc from './pages/kyc.js';
@@ -168,6 +169,7 @@ export function wireAll() {
   for (const page of Object.values(pages)) {
     if (typeof page.wire === 'function') page.wire();
   }
+  codBanner.wireCodBanner();
 
   const loginForm = document.getElementById('login-form');
   if (loginForm) loginForm.addEventListener('submit', (e) => onLoginSubmit(e));

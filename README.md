@@ -72,6 +72,11 @@ Deploy the container on the same compose network (`saas-net`) so downstream serv
 
 ## Features (6 Core Modules — Expanded per commit f5b7b6a)
 
+> CONSOLE-V2 rebuild: the pages share one UI kit (table controller with
+> pagination, dialog helper, toasts), one AR/EN dictionary and one
+> light/dark theme. A shell-level banner warns when jobs are stuck in escrow
+> reconciliation (COD) and jumps to the jobs page filtered on that status.
+
 0. **Overview** (`/api/overview`): operational counters (pending KYB/KYE reviews, subscriptions pending payment, open/assigned tickets, GPS disputes, stuck COD jobs, today's jobs by status, new/suspended accounts). Figures from a backend that fails inside user-service arrive as `unavailable` and are shown as such, never as 0.
 
 1. **Pending Submissions (KYC/KYB/KYE)** (`/api/queue`, `/api/review`, `/api/documents/view`):

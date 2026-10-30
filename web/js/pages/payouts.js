@@ -4,9 +4,74 @@
 import { api, isUnauthorized } from '../core/api.js';
 import { badge, el, show, hide } from '../core/dom.js';
 import { num, upper } from '../core/format.js';
+import { addTranslations, t } from '../core/i18n.js';
 import state from '../core/state.js';
 import { tableController, changePage } from '../core/ui/table.js';
 import { openDialog, closeDialog } from '../core/ui/dialog.js';
+import { toast } from '../core/ui/toast.js';
+
+addTranslations('payouts', {
+  ar: {
+    title: 'طلبات صرف الأرباح',
+    refresh: 'تحديث',
+    filter: 'بحث',
+    reset: 'مسح',
+    empty: 'لا توجد طلبات صرف.',
+    loadFailed: 'فشل تحميل طلبات الصرف: {error}',
+    col: {
+      id: 'معرف الطلب',
+      tenant: 'معرف التاجر',
+      amount: 'المبلغ',
+      method: 'الطريقة',
+      status: 'الحالة',
+      created: 'تاريخ الطلب',
+      action: 'إجراء',
+    },
+    reject: 'رفض…',
+    rejectedReason: 'السبب: {reason}',
+    rejectDialog: {
+      title: 'رفض طلب الصرف',
+      target: 'طلب {id} • تاجر {tenant} • {amount} EGP',
+      reason: 'سبب الرفض',
+      submit: 'تأكيد الرفض',
+      close: 'إلغاء',
+      required: 'سبب الرفض مطلوب.',
+      tooLong: 'السبب يتجاوز الحد الأقصى (1000 حرف).',
+      failed: 'فشل رفض طلب الصرف: {error}',
+      done: 'تم رفض طلب الصرف.',
+    },
+  },
+  en: {
+    title: 'Tenant payout requests',
+    refresh: 'Refresh',
+    filter: 'Filter',
+    reset: 'Reset',
+    empty: 'No payout requests found.',
+    loadFailed: 'Failed to load payouts: {error}',
+    col: {
+      id: 'Payout ID',
+      tenant: 'Tenant ID',
+      amount: 'Amount',
+      method: 'Method',
+      status: 'Status',
+      created: 'Requested at',
+      action: 'Action',
+    },
+    reject: 'Reject…',
+    rejectedReason: 'Reason: {reason}',
+    rejectDialog: {
+      title: 'Reject payout request',
+      target: 'Payout {id} • Tenant {tenant} • {amount} EGP',
+      reason: 'Reason for rejection',
+      submit: 'Confirm rejection',
+      close: 'Cancel',
+      required: 'A reason is required for rejection.',
+      tooLong: 'The reason exceeds the maximum length of 1000 characters.',
+      failed: 'Failed to reject the payout: {error}',
+      done: 'The payout request was rejected.',
+    },
+  },
+});
 
 export async function loadPayouts() {
   const st = state.payoutsState;
@@ -23,13 +88,16 @@ export async function loadPayouts() {
   } catch (e) {
     if (isUnauthorized(e)) return;
     const err = document.getElementById('payouts-error');
-    err.textContent = `Failed to load payouts: ${e.message}`;
-    show(err);
+    if (err) {
+      err.textContent = t('payouts.loadFailed', { error: e.message });
+      show(err);
+    }
     return;
   }
 
-  const payouts = data.payouts || [];
+  const payouts = Array.isArray(data.payouts) ? data.payouts : [];
   st.total = data.total || 0;
+  st.rows = payouts;
 
   const countBadge = document.getElementById('payouts-badge');
   if (countBadge) countBadge.textContent = `${data.total || payouts.length}`;
@@ -45,7 +113,7 @@ export async function loadPayouts() {
   table.renderRows({
     rows: payouts,
     colCount: 7,
-    emptyText: 'No payout requests found.',
+    emptyText: t('payouts.empty'),
     renderRow: payoutRow,
   });
 
@@ -96,12 +164,12 @@ function payoutRow(p) {
     const rejBtn = document.createElement('button');
     rejBtn.type = 'button';
     rejBtn.className = 'btn-sm danger';
-    rejBtn.textContent = 'Reject…';
+    rejBtn.textContent = t('payouts.reject');
     rejBtn.addEventListener('click', () => openRejectPayoutDialog(p));
     actionTd.appendChild(rejBtn);
   } else if (p.status === 'rejected' && p.rejection_reason) {
     actionTd.className = 'small';
-    actionTd.appendChild(el('em', '', `Reason: ${p.rejection_reason}`));
+    actionTd.appendChild(el('em', '', t('payouts.rejectedReason', { reason: p.rejection_reason })));
   } else {
     actionTd.textContent = '—';
   }
@@ -112,9 +180,16 @@ function payoutRow(p) {
 
 export function openRejectPayoutDialog(payout) {
   state.activeRejectPayout = payout;
-  document.getElementById('reject-payout-target').textContent =
-    `Payout ${payout.id} • Tenant ${payout.tenant_id} • ${num(payout.amount).toFixed(2)} EGP`;
-  document.getElementById('reject-payout-reason').value = '';
+  const target = document.getElementById('reject-payout-target');
+  if (target) {
+    target.textContent = t('payouts.rejectDialog.target', {
+      id: payout.id,
+      tenant: payout.tenant_id,
+      amount: num(payout.amount).toFixed(2),
+    });
+  }
+  const reason = document.getElementById('reject-payout-reason');
+  if (reason) reason.value = '';
   hide(document.getElementById('reject-payout-error'));
   openDialog('reject-payout-modal');
 }
@@ -125,19 +200,19 @@ export async function submitRejectPayout() {
   const errEl = document.getElementById('reject-payout-error');
 
   if (!reason) {
-    errEl.textContent = 'Reason is required for rejection.';
+    errEl.textContent = t('payouts.rejectDialog.required');
     show(errEl);
     return;
   }
   if (reason.length > 1000) {
-    errEl.textContent = 'Reason exceeds maximum length of 1000 characters.';
+    errEl.textContent = t('payouts.rejectDialog.tooLong');
     show(errEl);
     return;
   }
 
   const submitBtn = document.getElementById('reject-payout-submit');
   submitBtn.disabled = true;
-  submitBtn.textContent = 'Rejecting…';
+  submitBtn.textContent = `${t('payouts.rejectDialog.submit')}…`;
 
   try {
     const res = await api('/api/payouts/reject', {
@@ -153,14 +228,16 @@ export async function submitRejectPayout() {
       throw new Error(data.error || `HTTP ${res.status}`);
     }
     closeDialog('reject-payout-modal');
+    state.activeRejectPayout = null;
+    toast(t('payouts.rejectDialog.done'), 'ok');
     loadPayouts();
   } catch (err) {
     if (isUnauthorized(err)) return;
-    errEl.textContent = `Failed to reject payout: ${err.message}`;
+    errEl.textContent = t('payouts.rejectDialog.failed', { error: err.message });
     show(errEl);
   } finally {
     submitBtn.disabled = false;
-    submitBtn.textContent = 'Confirm Rejection';
+    submitBtn.textContent = t('payouts.rejectDialog.submit');
   }
 }
 

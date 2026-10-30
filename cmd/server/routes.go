@@ -102,6 +102,7 @@ var staticFiles = map[string]string{
 	"/js/core/dom.js":            "js/core/dom.js",
 	"/js/core/format.js":         "js/core/format.js",
 	"/js/core/i18n.js":           "js/core/i18n.js",
+	"/js/core/cod-banner.js":     "js/core/cod-banner.js",
 	"/js/core/router.js":         "js/core/router.js",
 	"/js/core/session.js":        "js/core/session.js",
 	"/js/core/state.js":          "js/core/state.js",
