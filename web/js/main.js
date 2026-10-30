@@ -96,6 +96,9 @@ export function translateShell() {
   for (const node of document.querySelectorAll('[data-i18n]')) {
     node.textContent = i18n.t(node.getAttribute('data-i18n'));
   }
+  for (const node of document.querySelectorAll('[data-i18n-placeholder]')) {
+    node.placeholder = i18n.t(node.getAttribute('data-i18n-placeholder'));
+  }
 }
 
 function refreshReviewerIdentityBox() {

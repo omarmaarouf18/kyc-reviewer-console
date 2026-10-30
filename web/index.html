@@ -74,21 +74,54 @@
       <div id="overview-grid" class="overview-grid"></div>
     </section>
 
-    <!-- TAB 1: Pending Queue -->
+    <!-- TAB 1: Pending Queue (list + review side panel) -->
     <section id="queue-section">
       <header>
-        <h2>Pending Submissions</h2>
-        <button id="refresh-queue-btn" type="button">Refresh Queue</button>
+        <h2 data-i18n="kyc.title">قيد المراجعة</h2>
+        <button id="refresh-queue-btn" type="button" data-i18n="kyc.refresh">تحديث القائمة</button>
       </header>
 
       <p id="queue-error" class="error banner" hidden></p>
 
-      <table id="queue-table">
-        <thead>
-          <tr><th>User</th><th>Role</th><th>Status</th><th>Documents</th><th>Action</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+      <div class="queue-layout">
+        <div class="queue-list">
+          <table id="queue-table">
+            <thead>
+              <tr>
+                <th data-i18n="kyc.col.user">المستخدم</th>
+                <th data-i18n="kyc.col.role">الدور</th>
+                <th data-i18n="kyc.col.status">الحالة</th>
+                <th data-i18n="kyc.col.documents">المستندات</th>
+                <th data-i18n="kyc.col.action">إجراء</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <p id="queue-shortcuts-hint" class="muted small queue-hint"></p>
+        </div>
+
+        <aside id="kyc-panel" class="side-panel" hidden aria-label="Review panel">
+          <div class="side-panel-header">
+            <h3 data-i18n="kyc.panel.title">تفاصيل المراجعة</h3>
+            <button id="kyc-panel-close" type="button" class="ghost btn-sm" data-i18n="kyc.panel.close">إغلاق</button>
+          </div>
+          <div id="kyc-panel-details" class="dispute-details-card"></div>
+          <div id="kyc-panel-docs" class="doc-grid"></div>
+          <p id="kyc-panel-docs-error" class="error" hidden></p>
+          <div class="decision-group">
+            <label><input type="radio" name="kyc-panel-action" value="approve" checked /> <strong data-i18n="kyc.panel.approve">قبول</strong></label>
+            <label><input type="radio" name="kyc-panel-action" value="reject" /> <strong data-i18n="kyc.panel.reject">رفض</strong></label>
+          </div>
+          <label for="kyc-panel-reason"><span data-i18n="kyc.panel.reason">سبب الرفض</span> <span class="required">*</span></label>
+          <textarea id="kyc-panel-reason" maxlength="1000" rows="3"
+            data-i18n-placeholder="kyc.panel.reasonPlaceholder"
+            placeholder="اشرح سبب رفض الطلب"></textarea>
+          <p id="kyc-panel-error" class="error" hidden></p>
+          <menu>
+            <button id="kyc-panel-submit" type="button" data-i18n="kyc.panel.submit">إرسال المراجعة</button>
+          </menu>
+        </aside>
+      </div>
     </section>
 
     <!-- TAB 2: Accounts Directory -->
@@ -342,23 +375,6 @@
       </div>
     </section>
       </main>
-
-    <!-- Dialog: Review KYC Submission -->
-    <dialog id="review-dialog">
-      <h2>Review submission</h2>
-      <p id="review-target" class="muted"></p>
-      <div class="doc-grid" id="doc-links"></div>
-      <label><input type="radio" name="action" value="approve" /> Approve</label>
-      <label><input type="radio" name="action" value="reject" checked /> Reject</label>
-      <label for="reason">Reason (required when rejecting)</label>
-      <textarea id="reason" maxlength="1000" rows="3"
-        placeholder="Explain why this submission is rejected"></textarea>
-      <p id="review-error" class="error" hidden></p>
-      <menu>
-        <button id="review-cancel" type="button" class="secondary">Cancel</button>
-        <button id="review-submit" type="button">Submit review</button>
-      </menu>
-    </dialog>
 
     <!-- Dialog: Suspend Account -->
     <dialog id="suspend-dialog">

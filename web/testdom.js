@@ -176,6 +176,8 @@ class Element extends Node {
   click() { this.dispatchEvent({ type: 'click', preventDefault() {} }); }
   showModal() { this.open = true; }
   close() { this.open = false; }
+  focus() { this.focused = true; }
+  blur() { this.focused = false; }
 
   get innerHTML() {
     return this.childNodes.map(serialize).join('');

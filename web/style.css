@@ -226,6 +226,79 @@ body {
   max-width: 76rem;
 }
 
+/* ---- KYC queue: list + review side panel ----------------------------------- */
+
+.queue-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  gap: 1rem;
+  align-items: start;
+}
+
+.queue-list { min-width: 0; }
+
+.queue-hint {
+  margin-top: 0.5rem;
+}
+
+.queue-row {
+  cursor: pointer;
+}
+
+.queue-row:hover {
+  background: var(--fill-muted);
+}
+
+.queue-row.selected {
+  background: var(--gold-tint);
+  box-shadow: inset 3px 0 0 0 var(--gold);
+}
+
+[dir="rtl"] .queue-row.selected {
+  box-shadow: inset -3px 0 0 0 var(--gold);
+}
+
+.side-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1rem;
+  position: sticky;
+  top: 4.25rem;
+  max-height: calc(100vh - 5.5rem);
+  overflow-y: auto;
+}
+
+.side-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.side-panel-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.side-panel textarea {
+  margin-top: 0.25rem;
+}
+
+.side-panel menu {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0;
+  margin: 0.75rem 0 0;
+}
+
+@media (max-width: 70rem) {
+  .queue-layout { grid-template-columns: minmax(0, 1fr); }
+  .side-panel { position: static; max-height: none; }
+}
+
 /* ---- Overview stat cards --------------------------------------------------- */
 
 .overview-grid {

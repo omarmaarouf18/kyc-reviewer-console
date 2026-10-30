@@ -46,6 +46,12 @@ const claimsState = {
   total: 0,
 };
 
+const queueState = {
+  submissions: [],
+  selectedIndex: -1,
+  current: null,
+};
+
 const state = {
   currentReviewer: null,
   activeChatWs: null,
@@ -60,6 +66,7 @@ const state = {
   currentUserDocsTarget: null,
   lastUserDocsReason: '',
   // Page states
+  queueState,
   accountsState,
   reconciliationState,
   subscriptionsState,
@@ -89,6 +96,7 @@ export function resetSessionState() {
   state.activeRejectPayout = null;
   state.currentUserDocsTarget = null;
   state.lastUserDocsReason = '';
+  Object.assign(queueState, { submissions: [], selectedIndex: -1, current: null });
   Object.assign(accountsState, { page: 1, search: '', role: '', status: '', total: 0 });
   Object.assign(reconciliationState, { page: 1, total: 0 });
   Object.assign(subscriptionsState, { page: 1, search: '', status: '', total: 0 });

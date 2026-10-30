@@ -76,6 +76,8 @@ Deploy the container on the same compose network (`saas-net`) so downstream serv
 
 1. **Pending Submissions (KYC/KYB/KYE)** (`/api/queue`, `/api/review`, `/api/documents/view`):
    - Review pending identity documents for business owners (KYB) and couriers (KYE).
+   - List + review side panel: pick a row to see the details, its document links and the approve/reject decision.
+   - Keyboard shortcuts: `↑`/`↓` (or `j`/`k`) move the selection, `Enter` opens the panel, `a` approves, `r` rejects, `Esc` closes, `?` shows the hint.
    - Approvals and rejections with mandatory reason (1–1000 chars) and automated customer notification.
    - Secure byte-streaming document relay without exposing storage credentials.
 2. **Accounts Directory & Suspensions** (`/api/accounts`, `/api/accounts/suspend`, `/api/accounts/reactivate`):
