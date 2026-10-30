@@ -299,6 +299,43 @@ body {
   .side-panel { position: static; max-height: none; }
 }
 
+/* ---- Account drawer (overlay) ---------------------------------------------- */
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 19, 33, 0.45);
+  z-index: 20;
+}
+
+.drawer {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: min(24rem, 92vw);
+  background: var(--surface);
+  border-inline-start: 1px solid var(--border);
+  box-shadow: 0 0 32px rgba(13, 19, 33, 0.25);
+  padding: 1rem;
+  overflow-y: auto;
+  z-index: 21;
+}
+
+.drawer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.account-row {
+  cursor: pointer;
+}
+
+.account-row:hover {
+  background: var(--fill-muted);
+}
+
 /* ---- Overview stat cards --------------------------------------------------- */
 
 .overview-grid {

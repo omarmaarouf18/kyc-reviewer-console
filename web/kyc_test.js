@@ -39,6 +39,9 @@ async function queueEnv({ reviews = [] } = {}) {
       return jsonResponse([]);
     },
   });
+  // The console is Arabic by default; these assertions read the English
+  // strings, so the language is pinned explicitly.
+  env.ctx.setLanguage('en');
   // The queue page is the visible page while these shortcuts are exercised
   // (the router shows it on navigation).
   env.doc.getElementById('queue-section').hidden = false;

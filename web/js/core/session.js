@@ -26,6 +26,16 @@ function clearSessionDom() {
   const chatCard = document.getElementById('ticket-chat-card');
   if (chatCard) chatCard.hidden = true;
 
+  // Overlays: the account drawer and the KYC review panel.
+  for (const id of ['account-drawer', 'account-drawer-backdrop', 'kyc-panel']) {
+    const node = document.getElementById(id);
+    if (node) node.hidden = true;
+  }
+  for (const id of ['account-drawer-details', 'account-drawer-actions']) {
+    const node = document.getElementById(id);
+    if (node) node.textContent = '';
+  }
+
   const appView = document.getElementById('app-view');
   const loginView = document.getElementById('login-view');
   if (appView) appView.hidden = true;

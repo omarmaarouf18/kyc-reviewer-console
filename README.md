@@ -83,6 +83,7 @@ Deploy the container on the same compose network (`saas-net`) so downstream serv
 2. **Accounts Directory & Suspensions** (`/api/accounts`, `/api/accounts/suspend`, `/api/accounts/reactivate`):
    - Universal account directory with search by username, email, or user ID.
    - Role and status filtering with pagination.
+   - Clicking a row opens the account drawer (verification status, standing, suspension reason) with the KYC-documents and suspend/reactivate actions.
    - Account suspension with mandatory reason (1–1000 chars), JWT session invalidation, and notification dispatch.
 3. **Disputes & Reconciliation** (`/api/reconciliation/queue`, `/api/reconciliation/resolve`):
    - Review disputed delivery jobs (`escrow_reconciliation_required`) flagged by GPS under-distance checks.

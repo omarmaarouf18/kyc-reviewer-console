@@ -9,6 +9,7 @@ const accountsState = {
   role: '',
   status: '',
   total: 0,
+  rows: [],
 };
 
 const reconciliationState = {
@@ -97,7 +98,7 @@ export function resetSessionState() {
   state.currentUserDocsTarget = null;
   state.lastUserDocsReason = '';
   Object.assign(queueState, { submissions: [], selectedIndex: -1, current: null });
-  Object.assign(accountsState, { page: 1, search: '', role: '', status: '', total: 0 });
+  Object.assign(accountsState, { page: 1, search: '', role: '', status: '', total: 0, rows: [] });
   Object.assign(reconciliationState, { page: 1, total: 0 });
   Object.assign(subscriptionsState, { page: 1, search: '', status: '', total: 0 });
   Object.assign(ticketsState, { page: 1, search: '', status: '', total: 0 });

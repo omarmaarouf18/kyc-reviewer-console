@@ -153,12 +153,12 @@
       <table id="accounts-table">
         <thead>
           <tr>
-            <th>User</th>
-            <th>Role</th>
-            <th>Verification</th>
-            <th>Standing</th>
-            <th>Created</th>
-            <th>Action</th>
+            <th data-i18n="accounts.col.user">User</th>
+            <th data-i18n="accounts.col.role">Role</th>
+            <th data-i18n="accounts.col.verification">Verification</th>
+            <th data-i18n="accounts.col.standing">Standing</th>
+            <th data-i18n="accounts.col.created">Created</th>
+            <th data-i18n="accounts.col.action">Action</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -172,6 +172,18 @@
           <button id="accounts-next-btn" type="button" class="secondary" disabled>Next &rarr;</button>
         </div>
       </div>
+
+      <!-- Account detail drawer -->
+      <div id="account-drawer-backdrop" class="drawer-backdrop" hidden></div>
+      <aside id="account-drawer" class="drawer" hidden aria-label="Account details">
+        <div class="side-panel-header">
+          <h3 data-i18n="accounts.drawer.title">Account details</h3>
+          <button id="account-drawer-close" type="button" class="ghost btn-sm" data-i18n="accounts.drawer.close">Close</button>
+        </div>
+        <div id="account-drawer-details" class="dispute-details-card"></div>
+        <div id="account-drawer-actions" class="drawer-actions"></div>
+        <p id="account-drawer-error" class="error" hidden></p>
+      </aside>
     </section>
 
     <!-- TAB 3: Disputes & Reconciliation (ADR-0023) -->

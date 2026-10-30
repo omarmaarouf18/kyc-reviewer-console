@@ -68,11 +68,26 @@ export function t(key, params) {
 }
 
 // addTranslations(area, { ar: {...}, en: {...} }) merges one area's strings.
+// Nested groups are flattened into dotted keys, so { col: { user: 'User' } }
+// under area 'accounts' becomes 'accounts.col.user'.
 export function addTranslations(area, translations) {
   for (const lang of ['ar', 'en']) {
     const src = translations[lang] || {};
     for (const [k, v] of Object.entries(src)) {
-      dict[lang][k.startsWith('.') ? k : `${area}.${k}`] = v;
+      const key = k.startsWith('.') ? k : `${area}.${k}`;
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        flattenInto(dict[lang], key, v);
+      } else {
+        dict[lang][key] = v;
+      }
     }
+  }
+}
+
+function flattenInto(target, prefix, group) {
+  for (const [k, v] of Object.entries(group)) {
+    const key = `${prefix}.${k}`;
+    if (v && typeof v === 'object' && !Array.isArray(v)) flattenInto(target, key, v);
+    else target[key] = v;
   }
 }

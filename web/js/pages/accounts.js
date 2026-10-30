@@ -2,12 +2,72 @@
 // suspend / reactivate with mandatory reason, KYC docs viewer entry point.
 
 import { api, isUnauthorized } from '../core/api.js';
-import { show, hide } from '../core/dom.js';
+import { show, hide, el, detailRow } from '../core/dom.js';
 import { capitalize } from '../core/format.js';
+import { addTranslations, t } from '../core/i18n.js';
 import state from '../core/state.js';
 import { openDialog, closeDialog } from '../core/ui/dialog.js';
 import { tableController, changePage } from '../core/ui/table.js';
 import { openUserDocsDialog } from './kycdocs.js';
+
+addTranslations('accounts', {
+  ar: {
+    col: {
+      user: 'المستخدم',
+      role: 'الدور',
+      verification: 'التوثيق',
+      standing: 'الحالة',
+      created: 'تاريخ الإنشاء',
+      action: 'إجراء',
+    },
+    drawer: {
+      title: 'تفاصيل الحساب',
+      close: 'إغلاق',
+      username: 'اسم المستخدم',
+      email: 'البريد الإلكتروني',
+      role: 'الدور',
+      id: 'معرف المستخدم',
+      kyc: 'حالة التوثيق',
+      standing: 'حالة الحساب',
+      suspensionReason: 'سبب الإيقاف',
+      created: 'تاريخ الإنشاء',
+      kycDocs: 'مستندات التوثيق',
+      suspend: 'إيقاف الحساب',
+      reactivate: 'إعادة التفعيل',
+      active: 'نشط',
+      suspended: 'موقوف',
+      none: 'لا يوجد',
+    },
+  },
+  en: {
+    col: {
+      user: 'User',
+      role: 'Role',
+      verification: 'Verification',
+      standing: 'Standing',
+      created: 'Created',
+      action: 'Action',
+    },
+    drawer: {
+      title: 'Account details',
+      close: 'Close',
+      username: 'Username',
+      email: 'Email',
+      role: 'Role',
+      id: 'User ID',
+      kyc: 'Verification status',
+      standing: 'Account status',
+      suspensionReason: 'Suspension reason',
+      created: 'Created',
+      kycDocs: 'KYC documents',
+      suspend: 'Suspend account',
+      reactivate: 'Reactivate account',
+      active: 'Active',
+      suspended: 'Suspended',
+      none: 'None',
+    },
+  },
+});
 
 export async function loadAccounts() {
   hide(document.getElementById('accounts-error'));
@@ -36,6 +96,7 @@ export async function loadAccounts() {
 
   const accounts = data.accounts || [];
   st.total = data.total || 0;
+  st.rows = accounts;
 
   const table = tableController({
     tbody: document.querySelector('#accounts-table tbody'),
@@ -113,8 +174,10 @@ function accountRow(acc) {
   kycDocsBtn.type = 'button';
   kycDocsBtn.className = 'btn-sm secondary';
   kycDocsBtn.textContent = 'KYC Docs';
-  kycDocsBtn.style.marginRight = '0.35rem';
-  kycDocsBtn.addEventListener('click', () => openUserDocsDialog(acc));
+  kycDocsBtn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    openUserDocsDialog(acc);
+  });
   actionTd.appendChild(kycDocsBtn);
 
   if (isSuspended) {
@@ -122,19 +185,87 @@ function accountRow(acc) {
     reactivateBtn.type = 'button';
     reactivateBtn.className = 'btn-sm';
     reactivateBtn.textContent = 'Reactivate…';
-    reactivateBtn.addEventListener('click', () => openReactivateDialog(acc));
+    reactivateBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openReactivateDialog(acc);
+    });
     actionTd.appendChild(reactivateBtn);
   } else {
     const suspendBtn = document.createElement('button');
     suspendBtn.type = 'button';
     suspendBtn.className = 'btn-sm danger';
     suspendBtn.textContent = 'Suspend…';
-    suspendBtn.addEventListener('click', () => openSuspendDialog(acc));
+    suspendBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openSuspendDialog(acc);
+    });
     actionTd.appendChild(suspendBtn);
   }
   tr.appendChild(actionTd);
 
+  // The whole row opens the account drawer.
+  tr.classList.add('account-row');
+  tr.addEventListener('click', () => openAccountDrawer(acc));
+
   return tr;
+}
+
+// openAccountDrawer shows the account detail drawer (overlay) with the
+// account's fields and the actions available for its current standing.
+export function openAccountDrawer(acc) {
+  if (!acc) return;
+  state.targetAccount = acc;
+
+  const details = document.getElementById('account-drawer-details');
+  if (details) {
+    details.textContent = '';
+    details.appendChild(detailRow(t('accounts.drawer.username'), acc.username || t('accounts.drawer.none')));
+    details.appendChild(detailRow(t('accounts.drawer.email'), acc.email || t('accounts.drawer.none')));
+    details.appendChild(detailRow(t('accounts.drawer.role'), capitalize(acc.role)));
+    details.appendChild(detailRow(t('accounts.drawer.id'), acc.id || '', 'code'));
+    const vStatus = acc.kyc_status || acc.kye_status || t('accounts.drawer.none');
+    details.appendChild(detailRow(t('accounts.drawer.kyc'), vStatus));
+    const suspended = acc.account_status === 'suspended' || !acc.is_active;
+    details.appendChild(detailRow(t('accounts.drawer.standing'), suspended ? t('accounts.drawer.suspended') : t('accounts.drawer.active')));
+    if (suspended && acc.suspension_reason) {
+      details.appendChild(detailRow(t('accounts.drawer.suspensionReason'), acc.suspension_reason));
+    }
+    details.appendChild(detailRow(t('accounts.drawer.created'), acc.created_at ? new Date(acc.created_at).toLocaleDateString() : '—'));
+  }
+
+  const actions = document.getElementById('account-drawer-actions');
+  if (actions) {
+    actions.textContent = '';
+
+    const docsBtn = el('button', 'btn-sm secondary', t('accounts.drawer.kycDocs'));
+    docsBtn.type = 'button';
+    docsBtn.addEventListener('click', () => openUserDocsDialog(acc));
+    actions.appendChild(docsBtn);
+
+    const suspended = acc.account_status === 'suspended' || !acc.is_active;
+    const actionBtn = el('button', suspended ? 'btn-sm' : 'btn-sm danger', suspended ? t('accounts.drawer.reactivate') : t('accounts.drawer.suspend'));
+    actionBtn.type = 'button';
+    actionBtn.addEventListener('click', () => {
+      if (suspended) openReactivateDialog(acc);
+      else openSuspendDialog(acc);
+    });
+    actions.appendChild(actionBtn);
+  }
+
+  const err = document.getElementById('account-drawer-error');
+  if (err) {
+    err.textContent = '';
+    err.hidden = true;
+  }
+
+  show(document.getElementById('account-drawer'));
+  show(document.getElementById('account-drawer-backdrop'));
+}
+
+// closeAccountDrawer hides the drawer and its backdrop.
+export function closeAccountDrawer() {
+  hide(document.getElementById('account-drawer'));
+  hide(document.getElementById('account-drawer-backdrop'));
 }
 
 export function openSuspendDialog(acc) {
@@ -180,6 +311,7 @@ export async function submitSuspend() {
     }
 
     closeDialog('suspend-dialog');
+    closeAccountDrawer();
     loadAccounts();
   } catch (e) {
     if (isUnauthorized(e)) return;
@@ -230,6 +362,7 @@ export async function submitReactivate() {
     }
 
     closeDialog('reactivate-dialog');
+    closeAccountDrawer();
     loadAccounts();
   } catch (e) {
     if (isUnauthorized(e)) return;
@@ -266,6 +399,11 @@ export function wire() {
   if (prev) prev.addEventListener('click', () => changePage(state.accountsState, -1, loadAccounts));
   const next = document.getElementById('accounts-next-btn');
   if (next) next.addEventListener('click', () => changePage(state.accountsState, +1, loadAccounts));
+
+  const drawerClose = document.getElementById('account-drawer-close');
+  if (drawerClose) drawerClose.addEventListener('click', closeAccountDrawer);
+  const drawerBackdrop = document.getElementById('account-drawer-backdrop');
+  if (drawerBackdrop) drawerBackdrop.addEventListener('click', closeAccountDrawer);
 
   const suspendCancel = document.getElementById('suspend-cancel');
   if (suspendCancel) suspendCancel.addEventListener('click', () => closeDialog('suspend-dialog'));
