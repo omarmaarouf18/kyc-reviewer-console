@@ -109,6 +109,12 @@ class Element extends Node {
   set alt(v) { this.setAttribute('alt', v); }
   get src() { return this.getAttribute('src') || ''; }
   set src(v) { this.setAttribute('src', v); }
+  get href() { return this.getAttribute('href') || ''; }
+  set href(v) { this.setAttribute('href', v); }
+  get target() { return this.getAttribute('target') || ''; }
+  set target(v) { this.setAttribute('target', v); }
+  get rel() { return this.getAttribute('rel') || ''; }
+  set rel(v) { this.setAttribute('rel', v); }
   get placeholder() { return this.getAttribute('placeholder') || ''; }
   set placeholder(v) { this.setAttribute('placeholder', v); }
   get colSpan() { return Number(this.getAttribute('colspan') || 1); }

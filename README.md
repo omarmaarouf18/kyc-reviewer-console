@@ -93,15 +93,19 @@ Deploy the container on the same compose network (`saas-net`) so downstream serv
    - Review disputed delivery jobs (`escrow_reconciliation_required`) flagged by GPS under-distance checks.
    - Inspect tracked vs booked route discrepancy and locked escrow amounts.
    - Resolve disputes via reviewer override (`release_to_employee` or `refund_to_customer`) with mandatory reason.
-5. **Subscriptions Management** (`/api/subscriptions`, `/api/subscriptions/activate`, `/api/subscriptions/revoke`):
+5. **Marketplace Services Moderation** (`/api/services`, `/api/services/{id}/hide`, `/api/services/{id}/unhide`, `/api/services/{id}/photo/remove`):
+   - List business services with tenant/name/photo/visibility filters.
+   - Hide or unhide a listing with a mandatory reason (the owner is notified).
+   - Remove an inappropriate or infringing service photo (object storage deletion) with a mandatory reason.
+6. **Subscriptions Management** (`/api/subscriptions`, `/api/subscriptions/activate`, `/api/subscriptions/revoke`):
    - Monitor tenant subscriptions across all tiers (`pending_payment`, `free`, `paid`, `cancelled`).
    - Manual plan activation with configurable duration (e.g. 30, 60, 90, 365 days).
    - Plan revocation with mandatory reason (1–1000 chars) and audit logging.
-6. **Support Tickets Inbox & Resolution** (`/api/tickets`, `/api/tickets/resolve`):
+7. **Support Tickets Inbox & Resolution** (`/api/tickets`, `/api/tickets/resolve`):
    - Universal support ticket inbox across all tenants and customers.
    - Status filtering (`pending`, `assigned`, `resolved`) and search.
    - Resolve tickets with mandatory resolution note (1–1000 chars), releasing assigned agents.
-7. **Payout Requests** (`/api/payouts`, `/api/payouts/reject`):
+8. **Payout Requests** (`/api/payouts`, `/api/payouts/reject`):
    - Review pending courier and business owner payout requests.
    - Status filtering (`pending`, `completed`, `rejected`) and pagination.
    - Payout rejection with mandatory reason (1–1000 chars), proxying to `user-service` (`POST /admin/payouts/reject`) to perform atomic Compare-and-Swap (CAS) state transition from `pending` to `rejected` and automatically restore the user's withdrawable wallet balance (authorized via commit `f5b7b6a`).

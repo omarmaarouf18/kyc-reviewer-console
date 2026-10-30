@@ -6,6 +6,7 @@ export * from './pages/overview.js';
 export * from './pages/kyc.js';
 export * from './pages/accounts.js';
 export * from './pages/jobs.js';
+export * from './pages/services.js';
 export * from './pages/kycdocs.js';
 export * from './pages/disputes.js';
 export * from './pages/subscriptions.js';

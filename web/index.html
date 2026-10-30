@@ -55,6 +55,9 @@
         <button id="tab-subscriptions-btn" class="nav-item" type="button">
           <span data-i18n="nav.subscriptions">الاشتراكات</span><span id="subscriptions-badge" class="pill">0</span>
         </button>
+        <button id="tab-services-btn" class="nav-item" type="button">
+          <span data-i18n="nav.services">الخدمات</span>
+        </button>
         <button id="tab-tickets-btn" class="nav-item" type="button">
           <span data-i18n="nav.tickets">تذاكر الدعم</span><span id="tickets-badge" class="pill">0</span>
         </button>
@@ -324,7 +327,56 @@
       </div>
     </section>
 
-    <!-- TAB 5: Support Tickets (ADR-0023 Module B) -->
+    <!-- TAB 6: Services Marketplace Moderation -->
+    <section id="services-section" hidden>
+      <header>
+        <h2 data-i18n="services.title">خدمات السوق</h2>
+        <button id="refresh-services-btn" type="button" data-i18n="services.refresh">تحديث</button>
+      </header>
+
+      <form id="services-filter-form" class="toolbar">
+        <input type="text" id="services-tenant-input" placeholder="Tenant ID" autocomplete="off" />
+        <input type="text" id="services-name-input" placeholder="Service name" autocomplete="off" />
+        <select id="services-photo-filter">
+          <option value="">Any Photo</option>
+          <option value="true">With photo</option>
+          <option value="false">Without photo</option>
+        </select>
+        <select id="services-hidden-filter">
+          <option value="">Any Visibility</option>
+          <option value="true">Hidden</option>
+          <option value="false">Visible</option>
+        </select>
+        <button type="submit" data-i18n="services.filter">بحث</button>
+        <button type="button" id="services-reset-btn" class="secondary" data-i18n="services.reset">مسح</button>
+      </form>
+
+      <p id="services-error" class="error banner" hidden></p>
+
+      <table id="services-table">
+        <thead>
+          <tr>
+            <th data-i18n="services.col.service">Service</th>
+            <th data-i18n="services.col.tenant">Tenant</th>
+            <th data-i18n="services.col.photo">Photo</th>
+            <th data-i18n="services.col.status">Visibility</th>
+            <th data-i18n="services.col.action">Action</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="pagination-bar">
+        <span id="services-count" class="muted"></span>
+        <div class="pagination-controls">
+          <button id="services-prev-btn" type="button" class="secondary" disabled>&larr; Prev</button>
+          <span id="services-page-info">Page 1</span>
+          <button id="services-next-btn" type="button" class="secondary" disabled>Next &rarr;</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 7: Support Tickets (ADR-0023 Module B) -->
     <section id="tickets-section" hidden>
       <header>
         <h2>Support & Complaint Tickets</h2>
@@ -571,6 +623,20 @@
       <menu>
         <button id="revoke-sub-cancel" type="button" class="secondary">Cancel</button>
         <button id="revoke-sub-submit" type="button" class="danger">Revoke Plan</button>
+      </menu>
+    </dialog>
+
+    <!-- Dialog: Service moderation action (hide / unhide / photo removal) -->
+    <dialog id="service-action-dialog">
+      <h2 id="service-action-title">Service action</h2>
+      <p id="service-action-target" class="muted"></p>
+      <label for="service-action-reason"><span id="service-action-reason-label">Reason</span> <span class="required">*</span></label>
+      <textarea id="service-action-reason" maxlength="1000" rows="3" required
+        placeholder="Why is this action taken?"></textarea>
+      <p id="service-action-error" class="error" hidden></p>
+      <menu>
+        <button id="service-action-cancel" type="button" class="secondary" data-i18n="services.action.close">Cancel</button>
+        <button id="service-action-submit" type="button" class="danger" data-i18n="services.action.submit">Confirm</button>
       </menu>
     </dialog>
 

@@ -511,6 +511,77 @@ func (p *ReviewerProxy) ResolveReconciliation(w http.ResponseWriter, r *http.Req
 }
 
 // Subscriptions proxies GET /admin/subscriptions to user-service (ADR-0023).
+// Services proxies GET /admin/services to user-service (marketplace moderation).
+func (p *ReviewerProxy) Services(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	upstreamPath := "/admin/services"
+	if r.URL.RawQuery != "" {
+		upstreamPath += "?" + r.URL.RawQuery
+	}
+	p.forwardToService(w, r, p.userServiceURL, upstreamPath)
+}
+
+// serviceID returns the {id} path value, escaped for the upstream URL.
+func serviceID(r *http.Request) (string, bool) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		return "", false
+	}
+	return url.PathEscape(id), true
+}
+
+// proxyServiceAction validates the mandatory reason and forwards the service
+// moderation action (hide / unhide / photo removal) to user-service.
+func (p *ReviewerProxy) proxyServiceAction(w http.ResponseWriter, r *http.Request, action string) {
+	id, ok := serviceID(r)
+	if !ok {
+		http.Error(w, `{"error":"service_id is required"}`, http.StatusBadRequest)
+		return
+	}
+	reason, ok := validateJobReason(w, r)
+	if !ok {
+		return
+	}
+
+	payload, err := json.Marshal(jobReasonRequest{Reason: reason})
+	if err != nil {
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(payload))
+	p.forwardToService(w, r, p.userServiceURL, "/admin/services/"+id+"/"+action)
+}
+
+// HideService proxies POST /admin/services/{id}/hide.
+func (p *ReviewerProxy) HideService(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"use POST"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	p.proxyServiceAction(w, r, "hide")
+}
+
+// UnhideService proxies POST /admin/services/{id}/unhide.
+func (p *ReviewerProxy) UnhideService(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"use POST"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	p.proxyServiceAction(w, r, "unhide")
+}
+
+// RemoveServicePhoto proxies POST /admin/services/{id}/photo/remove.
+func (p *ReviewerProxy) RemoveServicePhoto(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"use POST"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	p.proxyServiceAction(w, r, "photo/remove")
+}
+
 // Jobs proxies GET /admin/jobs to user-service (job search across tenants).
 func (p *ReviewerProxy) Jobs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

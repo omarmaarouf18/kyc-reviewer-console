@@ -314,6 +314,87 @@ func TestReactivate_ValidPayloadForwarded(t *testing.T) {
 	}
 }
 
+func TestServices_ForwardsToUserServiceWithQuery(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`{"services":[{"id":"svc-555","is_hidden":true}],"total":1,"page":1,"limit":20}`)}
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	p := NewWithUserService("secret-internal-token", "https://auth-service", upstream.URL, upstream.Client())
+	t.Cleanup(upstream.Close)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/services?hidden=true&page=1", nil)
+	req.Header.Set("X-Reviewer-Token", "tok")
+	rec := httptest.NewRecorder()
+	p.Services(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if stub.gotPath != "/admin/services" {
+		t.Errorf("unexpected upstream path: %q", stub.gotPath)
+	}
+	if stub.gotRawQuery != "hidden=true&page=1" {
+		t.Errorf("query not forwarded: %q", stub.gotRawQuery)
+	}
+}
+
+func TestServiceActions_ForwardReasonAndPath(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		call func(p *ReviewerProxy, w http.ResponseWriter, r *http.Request)
+		path string
+	}{
+		{"hide", (*ReviewerProxy).HideService, "/admin/services/svc-555/hide"},
+		{"unhide", (*ReviewerProxy).UnhideService, "/admin/services/svc-555/unhide"},
+		{"photo remove", (*ReviewerProxy).RemoveServicePhoto, "/admin/services/svc-555/photo/remove"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &upstreamStub{t: t, statusCode: http.StatusOK, responseBytes: []byte(`{"success":true}`)}
+			upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+			p := NewWithUserService("secret-internal-token", "https://auth-service", upstream.URL, upstream.Client())
+			t.Cleanup(upstream.Close)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/services/svc-555", strings.NewReader(`{"reason":"policy violation"}`))
+			req.SetPathValue("id", "svc-555")
+			req.Header.Set("X-Reviewer-Token", "tok")
+			rec := httptest.NewRecorder()
+			tc.call(p, rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if stub.gotPath != tc.path {
+				t.Errorf("unexpected upstream path: %q", stub.gotPath)
+			}
+			if stub.gotBody["reason"] != "policy violation" {
+				t.Errorf("reason not forwarded: %+v", stub.gotBody)
+			}
+		})
+	}
+}
+
+func TestServiceActions_ValidateReasonBeforeUpstream(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK}
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	p := NewWithUserService("secret-internal-token", "https://auth-service", upstream.URL, upstream.Client())
+	t.Cleanup(upstream.Close)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/services/svc-555/hide", strings.NewReader(`{"reason":"   "}`))
+	req.SetPathValue("id", "svc-555")
+	req.Header.Set("X-Reviewer-Token", "tok")
+	rec := httptest.NewRecorder()
+	p.HideService(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("blank reason = %d, want 400", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "reason is required") {
+		t.Errorf("unexpected error body: %s", rec.Body.String())
+	}
+	if stub.gotPath != "" {
+		t.Errorf("invalid request must not reach the upstream (saw %q)", stub.gotPath)
+	}
+}
+
 func TestJobs_ForwardsToUserServiceWithQuery(t *testing.T) {
 	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
 		responseBytes: []byte(`{"jobs":[{"id":"job-98712","status":"active"}],"total":1,"page":1,"limit":20}`)}

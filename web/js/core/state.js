@@ -27,6 +27,19 @@ const jobsState = {
   codTarget: null,
 };
 
+const servicesState = {
+  page: 1,
+  limit: 20,
+  tenantId: '',
+  name: '',
+  hasPhoto: '',
+  hidden: '',
+  total: 0,
+  rows: [],
+  actionTarget: null,
+  actionKind: null,
+};
+
 const reconciliationState = {
   page: 1,
   limit: 15,
@@ -84,6 +97,7 @@ const state = {
   // Page states
   queueState,
   jobsState,
+  servicesState,
   accountsState,
   reconciliationState,
   subscriptionsState,
@@ -114,6 +128,10 @@ export function resetSessionState() {
   state.currentUserDocsTarget = null;
   state.lastUserDocsReason = '';
   Object.assign(queueState, { submissions: [], selectedIndex: -1, current: null });
+  Object.assign(servicesState, {
+    page: 1, tenantId: '', name: '', hasPhoto: '', hidden: '', total: 0,
+    rows: [], actionTarget: null, actionKind: null,
+  });
   Object.assign(jobsState, {
     page: 1, jobId: '', customerId: '', status: '', from: '', to: '', total: 0,
     rows: [], currentId: '', cancelTarget: null, codTarget: null,

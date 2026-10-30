@@ -14,13 +14,14 @@ import * as overview from './pages/overview.js';
 import * as kyc from './pages/kyc.js';
 import * as accounts from './pages/accounts.js';
 import * as jobs from './pages/jobs.js';
+import * as services from './pages/services.js';
 import * as kycdocs from './pages/kycdocs.js';
 import * as disputes from './pages/disputes.js';
 import * as subscriptions from './pages/subscriptions.js';
 import * as tickets from './pages/tickets.js';
 import * as payouts from './pages/payouts.js';
 
-const pages = { overview, kyc, accounts, jobs, kycdocs, disputes, subscriptions, tickets, payouts };
+const pages = { overview, kyc, accounts, jobs, services, kycdocs, disputes, subscriptions, tickets, payouts };
 
 // Tab definitions mirror the old switchTab(): one visible section at a time
 // plus a data load per activation.
@@ -29,6 +30,7 @@ const tabs = {
   queue: { section: 'queue-section', btn: 'tab-queue-btn', load: () => kyc.loadQueue() },
   accounts: { section: 'accounts-section', btn: 'tab-accounts-btn', load: () => accounts.loadAccounts() },
   jobs: { section: 'jobs-section', btn: 'tab-jobs-btn', load: () => jobs.loadJobs() },
+  services: { section: 'services-section', btn: 'tab-services-btn', load: () => services.loadServices() },
   reconciliation: { section: 'reconciliation-section', btn: 'tab-reconciliation-btn', load: () => disputes.loadReconciliation() },
   subscriptions: { section: 'subscriptions-section', btn: 'tab-subscriptions-btn', load: () => subscriptions.loadSubscriptions() },
   tickets: { section: 'tickets-section', btn: 'tab-tickets-btn', load: () => tickets.loadTickets() },
@@ -43,6 +45,7 @@ function addShellTranslations() {
     ar: {
       overview: 'نظرة عامة',
       jobs: 'المهام',
+      services: 'الخدمات',
       queue: 'قيد المراجعة',
       accounts: 'الحسابات',
       reconciliation: 'النزاعات والمطابقة',
@@ -53,6 +56,7 @@ function addShellTranslations() {
     en: {
       overview: 'Overview',
       jobs: 'Jobs',
+      services: 'Services',
       queue: 'Pending Submissions',
       accounts: 'Accounts Directory',
       reconciliation: 'Disputes & Reconciliation',
@@ -239,5 +243,5 @@ export function boot() {
   bootstrapSession();
 }
 
-export { overview, kyc, accounts, jobs, kycdocs, disputes, subscriptions, tickets, payouts, tabs };
+export { overview, kyc, accounts, jobs, services, kycdocs, disputes, subscriptions, tickets, payouts, tabs };
 export { openDialog };
