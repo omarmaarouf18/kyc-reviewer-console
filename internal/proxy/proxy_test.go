@@ -452,6 +452,140 @@ func TestVersion_UpdateForwardsEveryPolicyField(t *testing.T) {
 	}
 }
 
+func TestNotificationSend_ForwardsToNotificationService(t *testing.T) {
+	notif := &upstreamStub{t: t, statusCode: http.StatusAccepted,
+		responseBytes: []byte(`{"job_id":"send-1793255745373574323","status":"queued","audience_size":450,"message":"admin notification queued for delivery"}`)}
+	upstream := httptest.NewServer(http.HandlerFunc(notif.handler))
+	t.Cleanup(upstream.Close)
+	p := NewWithAllServices("secret-internal-token", upstream.URL, upstream.URL, upstream.URL, upstream.URL, upstream.URL, upstream.Client())
+
+	body := `{"reason":"Emergency platform maintenance notification","audience":{"kind":"role","role":"customers"},"title":{"en":"Scheduled System Maintenance","ar":"صيانة مجدولة"},"body":{"en":"Maintenance tonight","ar":"صيانة الليلة"},"deep_link":"/plan","dry_run":false,"confirm_audience_size":0,"test_user_id":"","idempotency_key":"announce-1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/notifications/send", strings.NewReader(body))
+	req.Header.Set("X-Reviewer-Token", "reviewer-tok-abc")
+	rec := httptest.NewRecorder()
+	p.NotificationSend(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if notif.gotPath != "/admin/notifications/send" {
+		t.Errorf("unexpected upstream path: %q", notif.gotPath)
+	}
+	if notif.gotInternal != "secret-internal-token" || notif.gotReviewer != "reviewer-tok-abc" {
+		t.Errorf("tokens not forwarded: internal=%q reviewer=%q", notif.gotInternal, notif.gotReviewer)
+	}
+	if notif.gotBody["reason"] != "Emergency platform maintenance notification" {
+		t.Errorf("reason not forwarded: %+v", notif.gotBody)
+	}
+	if notif.gotBody["idempotency_key"] != "announce-1" {
+		t.Errorf("idempotency key not forwarded: %+v", notif.gotBody)
+	}
+	if notif.gotBody["deep_link"] != "/plan" {
+		t.Errorf("deep link not forwarded: %+v", notif.gotBody)
+	}
+}
+
+func TestNotificationSend_ValidatesBeforeTheService(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"missing reason", `{"audience":{"kind":"everyone"},"title":{"en":"t","ar":"ع"},"body":{"en":"b","ar":"ب"}}`, "invalid_reason"},
+		{"oversized reason", `{"reason":"` + strings.Repeat("x", 1001) + `","audience":{"kind":"everyone"},"title":{"en":"t","ar":"ع"},"body":{"en":"b","ar":"ب"}}`, "invalid_reason"},
+		{"missing english title", `{"reason":"r","audience":{"kind":"everyone"},"title":{"ar":"ع"},"body":{"en":"b","ar":"ب"}}`, "invalid_title"},
+		{"missing arabic title", `{"reason":"r","audience":{"kind":"everyone"},"title":{"en":"t"},"body":{"en":"b","ar":"ب"}}`, "invalid_title"},
+		{"oversized title", `{"reason":"r","audience":{"kind":"everyone"},"title":{"en":"` + strings.Repeat("x", 121) + `","ar":"ع"},"body":{"en":"b","ar":"ب"}}`, "invalid_title"},
+		{"missing english body", `{"reason":"r","audience":{"kind":"everyone"},"title":{"en":"t","ar":"ع"},"body":{"ar":"ب"}}`, "invalid_body"},
+		{"missing arabic body", `{"reason":"r","audience":{"kind":"everyone"},"title":{"en":"t","ar":"ع"},"body":{"en":"b"}}`, "invalid_body"},
+		{"external deep link", `{"reason":"r","audience":{"kind":"everyone"},"title":{"en":"t","ar":"ع"},"body":{"en":"b","ar":"ب"},"deep_link":"https://evil.example.com"}`, "invalid_deep_link"},
+		{"scheme deep link", `{"reason":"r","audience":{"kind":"everyone"},"title":{"en":"t","ar":"ع"},"body":{"en":"b","ar":"ب"},"deep_link":"javascript:alert(1)"}`, "invalid_deep_link"},
+		{"unknown audience", `{"reason":"r","audience":{"kind":"aliens"},"title":{"en":"t","ar":"ع"},"body":{"en":"b","ar":"ب"}}`, "invalid_audience"},
+		{"user without identifier", `{"reason":"r","audience":{"kind":"user"},"title":{"en":"t","ar":"ع"},"body":{"en":"b","ar":"ب"}}`, "invalid_audience"},
+		{"role without role", `{"reason":"r","audience":{"kind":"role"},"title":{"en":"t","ar":"ع"},"body":{"en":"b","ar":"ب"}}`, "invalid_audience"},
+		{"tenant without tenant", `{"reason":"r","audience":{"kind":"tenant"},"title":{"en":"t","ar":"ع"},"body":{"en":"b","ar":"ب"}}`, "invalid_audience"},
+		{"invalid json", `not-json`, "invalid JSON body"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			notif := &upstreamStub{t: t, statusCode: http.StatusOK}
+			upstream := httptest.NewServer(http.HandlerFunc(notif.handler))
+			t.Cleanup(upstream.Close)
+			p := NewWithAllServices("secret-internal-token", upstream.URL, upstream.URL, upstream.URL, upstream.URL, upstream.URL, upstream.Client())
+
+			req := httptest.NewRequest(http.MethodPost, "/api/notifications/send", strings.NewReader(tc.body))
+			req.Header.Set("X-Reviewer-Token", "tok")
+			rec := httptest.NewRecorder()
+			p.NotificationSend(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("POST /api/notifications/send = %d, want 400: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tc.want) {
+				t.Errorf("body %q missing %q", rec.Body.String(), tc.want)
+			}
+			if notif.gotPath != "" {
+				t.Errorf("an invalid announcement must not reach the service (saw %q)", notif.gotPath)
+			}
+		})
+	}
+}
+
+func TestNotificationSend_AcceptsTheAllowedDeepLinks(t *testing.T) {
+	for _, link := range []string{"/plan", "/plans", "/subscriptions", "/verification", "/kyc", "/tickets/tkt-1", "/orders/ord-9", "/jobs/job-9"} {
+		notif := &upstreamStub{t: t, statusCode: http.StatusAccepted, responseBytes: []byte(`{}`)}
+		upstream := httptest.NewServer(http.HandlerFunc(notif.handler))
+		p := NewWithAllServices("secret-internal-token", upstream.URL, upstream.URL, upstream.URL, upstream.URL, upstream.URL, upstream.Client())
+
+		body := `{"reason":"r","audience":{"kind":"everyone"},"title":{"en":"t","ar":"ع"},"body":{"en":"b","ar":"ب"},"deep_link":"` + link + `"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/notifications/send", strings.NewReader(body))
+		req.Header.Set("X-Reviewer-Token", "tok")
+		rec := httptest.NewRecorder()
+		p.NotificationSend(rec, req)
+		upstream.Close()
+
+		if rec.Code != http.StatusAccepted {
+			t.Errorf("deep link %q = %d, want 202: %s", link, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestNotificationSends_ListAndDetail(t *testing.T) {
+	notif := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`{"sends":[{"id":"send-1","audience_size":450,"status":"done"}],"total":1,"page":1,"limit":20}`)}
+	upstream := httptest.NewServer(http.HandlerFunc(notif.handler))
+	t.Cleanup(upstream.Close)
+	p := NewWithAllServices("secret-internal-token", upstream.URL, upstream.URL, upstream.URL, upstream.URL, upstream.URL, upstream.Client())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/notifications/sends?page=1&limit=20", nil)
+	req.Header.Set("X-Reviewer-Token", "tok")
+	rec := httptest.NewRecorder()
+	p.NotificationSends(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if notif.gotPath != "/admin/notifications/sends" {
+		t.Errorf("unexpected upstream path: %q", notif.gotPath)
+	}
+	if notif.gotRawQuery != "page=1&limit=20" {
+		t.Errorf("query not forwarded: %q", notif.gotRawQuery)
+	}
+
+	notif.gotPath = ""
+	req = httptest.NewRequest(http.MethodGet, "/api/notifications/sends/send-1793255745373574323", nil)
+	req.SetPathValue("id", "send-1793255745373574323")
+	req.Header.Set("X-Reviewer-Token", "tok")
+	rec = httptest.NewRecorder()
+	p.NotificationSendDetail(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if notif.gotPath != "/admin/notifications/sends/send-1793255745373574323" {
+		t.Errorf("unexpected upstream path: %q", notif.gotPath)
+	}
+}
+
 func TestSubscriptionQueue_ForwardsToUserService(t *testing.T) {
 	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
 		responseBytes: []byte(`{"queue":[{"id":"sub-771","tenant_id":"tenant-cairo-express","requested_plan":"pro"}],"total":1,"page":1,"limit":20}`)}

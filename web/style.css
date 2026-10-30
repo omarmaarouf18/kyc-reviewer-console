@@ -673,6 +673,75 @@ button.link:hover { background: none; }
   align-items: center;
 }
 
+/* ---- Notification composer (ADMIN_API § 12) -------------------------------- */
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.composer fieldset {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.75rem 1rem 1rem;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.composer legend {
+  padding: 0 0.35rem;
+  font-weight: 700;
+  font-size: 0.875rem;
+}
+
+.composer label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.composer input[type="text"],
+.composer input[type="number"],
+.composer select,
+.composer textarea {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-input);
+  border-radius: 12px;
+  font: inherit;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.composer textarea {
+  resize: vertical;
+}
+
+.composer .required {
+  color: var(--danger);
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border);
+}
+
+.detail-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
 .decision-group {
   display: flex;
   flex-direction: column;

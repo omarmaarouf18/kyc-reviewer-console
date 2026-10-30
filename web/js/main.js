@@ -23,8 +23,9 @@ import * as tickets from './pages/tickets.js';
 import * as payouts from './pages/payouts.js';
 import * as audit from './pages/audit.js';
 import * as versions from './pages/versions.js';
+import * as notifications from './pages/notifications.js';
 
-const pages = { overview, kyc, accounts, jobs, services, kycdocs, disputes, subscriptions, tickets, payouts, audit, versions };
+const pages = { overview, kyc, accounts, jobs, services, kycdocs, disputes, subscriptions, tickets, payouts, audit, versions, notifications };
 
 // Tab definitions mirror the old switchTab(): one visible section at a time
 // plus a data load per activation.
@@ -40,6 +41,7 @@ const tabs = {
   payouts: { section: 'payouts-section', btn: 'tab-payouts-btn', load: () => payouts.loadPayouts() },
   audit: { section: 'audit-section', btn: 'tab-audit-btn', load: () => audit.loadAudit() },
   versions: { section: 'versions-section', btn: 'tab-versions-btn', load: () => versions.loadVersions() },
+  notifications: { section: 'notifications-section', btn: 'tab-notifications-btn', load: () => notifications.loadNotifications() },
 };
 
 // Shell strings (nav, header, login area). Page modules add their own areas
@@ -59,6 +61,7 @@ function addShellTranslations() {
       payouts: 'طلبات الصرف',
       audit: 'سجل التدقيق',
       versions: 'إصدارات التطبيق',
+      notifications: 'الإشعارات',
     },
     en: {
       overview: 'Overview',
@@ -72,6 +75,7 @@ function addShellTranslations() {
       payouts: 'Payout Requests',
       audit: 'Audit log',
       versions: 'App versions',
+      notifications: 'Notifications',
     },
   });
   i18n.addTranslations('shell', {
@@ -253,5 +257,5 @@ export function boot() {
   bootstrapSession();
 }
 
-export { overview, kyc, accounts, jobs, services, kycdocs, disputes, subscriptions, tickets, payouts, audit, versions, tabs };
+export { overview, kyc, accounts, jobs, services, kycdocs, disputes, subscriptions, tickets, payouts, audit, versions, notifications, tabs };
 export { openDialog };

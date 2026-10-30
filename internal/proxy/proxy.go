@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -599,6 +600,194 @@ func (p *ReviewerProxy) RemoveServicePhoto(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	p.proxyServiceAction(w, r, "photo/remove")
+}
+
+// Notification sends (ADMIN_API § 12): the admin announcement broadcast
+// endpoints of notification-service. The service owns the audience lookup, the
+// delivery fan-out, the per-reviewer rate limit (5 sends/hour) and the
+// idempotency replay.
+var (
+	validOrderDeepLinkRegex  = regexp.MustCompile(`^/(orders|jobs)/[a-zA-Z0-9_\-\.:]{1,64}$`)
+	validTicketDeepLinkRegex = regexp.MustCompile(`^/tickets(/[a-zA-Z0-9_\-\.:]{1,64})?$`)
+	validPlanDeepLinkRegex   = regexp.MustCompile(`^/(plan|plans|subscriptions|subscription)$`)
+	validVerifyDeepLinkRegex = regexp.MustCompile(`^/(verification|kyc|kyb|kye)$`)
+)
+
+// validDeepLink reports whether the link is an allowed in-app route. Free
+// external URLs and scheme injection are rejected (same rules as
+// notification-service).
+func validDeepLink(link string) bool {
+	link = strings.TrimSpace(link)
+	if link == "" {
+		return true // optional
+	}
+	if strings.Contains(link, "://") || strings.HasPrefix(link, "//") ||
+		strings.HasPrefix(strings.ToLower(link), "javascript:") {
+		return false
+	}
+	if !strings.HasPrefix(link, "/") {
+		return false
+	}
+	return validOrderDeepLinkRegex.MatchString(link) ||
+		validTicketDeepLinkRegex.MatchString(link) ||
+		validPlanDeepLinkRegex.MatchString(link) ||
+		validVerifyDeepLinkRegex.MatchString(link)
+}
+
+// adminNotificationRequest is the console's view of the notification-service
+// send contract. The full body is forwarded untouched; this struct only
+// exists to validate the request before it is sent.
+type adminNotificationRequest struct {
+	Reason   string `json:"reason"`
+	Audience struct {
+		Kind     string `json:"kind"`
+		UserID   string `json:"user_id"`
+		Email    string `json:"email"`
+		Phone    string `json:"phone"`
+		Role     string `json:"role"`
+		TenantID string `json:"tenant_id"`
+	} `json:"audience"`
+	Title struct {
+		AR string `json:"ar"`
+		EN string `json:"en"`
+	} `json:"title"`
+	Body struct {
+		AR string `json:"ar"`
+		EN string `json:"en"`
+	} `json:"body"`
+	DeepLink            string `json:"deep_link"`
+	DryRun              bool   `json:"dry_run"`
+	TestUserID          string `json:"test_user_id"`
+	ConfirmAudienceSize int    `json:"confirm_audience_size"`
+	IdempotencyKey      string `json:"idempotency_key"`
+}
+
+// NotificationSend proxies POST /admin/notifications/send to
+// notification-service. The mandatory reason, the bilingual title/body and
+// the audience selection are validated locally, so an invalid announcement
+// never reaches the service.
+func (p *ReviewerProxy) NotificationSend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"use POST"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	body, ok := validateAdminNotification(w, r)
+	if !ok {
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	p.forwardToService(w, r, p.notificationServiceURL, "/admin/notifications/send")
+}
+
+// validateAdminNotification enforces the notification-service contract
+// (ADMIN_API § 12) and returns the untouched body so every other field
+// (idempotency key, test user, confirmation size) reaches the service
+// unchanged.
+func validateAdminNotification(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONBody))
+	if err != nil {
+		http.Error(w, `{"error":"failed to read request body"}`, http.StatusBadRequest)
+		return nil, false
+	}
+	var req adminNotificationRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+		return nil, false
+	}
+
+	if reason := strings.TrimSpace(req.Reason); reason == "" || len(reason) > 1000 {
+		writeAdminNotificationError(w, "invalid_reason", "reason is required and must be between 1 and 1000 characters")
+		return nil, false
+	}
+
+	titleAR := strings.TrimSpace(req.Title.AR)
+	titleEN := strings.TrimSpace(req.Title.EN)
+	if titleAR == "" || titleEN == "" || len(titleAR) > 120 || len(titleEN) > 120 {
+		writeAdminNotificationError(w, "invalid_title", "both Arabic and English titles are required (max 120 chars)")
+		return nil, false
+	}
+
+	bodyAR := strings.TrimSpace(req.Body.AR)
+	bodyEN := strings.TrimSpace(req.Body.EN)
+	if bodyAR == "" || bodyEN == "" || len(bodyAR) > 1000 || len(bodyEN) > 1000 {
+		writeAdminNotificationError(w, "invalid_body", "both Arabic and English bodies are required (max 1000 chars)")
+		return nil, false
+	}
+
+	if !validDeepLink(req.DeepLink) {
+		writeAdminNotificationError(w, "invalid_deep_link", "deep link must be an allowed internal route (e.g. /orders/{id}, /plan, /verification)")
+		return nil, false
+	}
+
+	kind := strings.ToLower(strings.TrimSpace(req.Audience.Kind))
+	switch kind {
+	case "user":
+		if strings.TrimSpace(req.Audience.UserID) == "" &&
+			strings.TrimSpace(req.Audience.Email) == "" &&
+			strings.TrimSpace(req.Audience.Phone) == "" {
+			writeAdminNotificationError(w, "invalid_audience", "audience kind user requires a user_id, email or phone")
+			return nil, false
+		}
+	case "role":
+		if strings.TrimSpace(req.Audience.Role) == "" {
+			writeAdminNotificationError(w, "invalid_audience", "audience kind role requires a role")
+			return nil, false
+		}
+	case "tenant":
+		if strings.TrimSpace(req.Audience.TenantID) == "" {
+			writeAdminNotificationError(w, "invalid_audience", "audience kind tenant requires a tenant_id")
+			return nil, false
+		}
+	case "everyone":
+	default:
+		writeAdminNotificationError(w, "invalid_audience", "audience kind must be one of: user, role, tenant, everyone")
+		return nil, false
+	}
+
+	return body, true
+}
+
+// writeAdminNotificationError answers with the services' error contract
+// ({"error","code","message"}) so the browser can map the code to a
+// localized message.
+func writeAdminNotificationError(w http.ResponseWriter, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	payload, _ := json.Marshal(map[string]string{
+		"error":   code,
+		"code":    code,
+		"message": message,
+	})
+	_, _ = w.Write(payload)
+}
+
+// NotificationSends proxies GET /admin/notifications/sends to
+// notification-service (the send-job history with its delivery counters).
+func (p *ReviewerProxy) NotificationSends(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	upstreamPath := "/admin/notifications/sends"
+	if r.URL.RawQuery != "" {
+		upstreamPath += "?" + r.URL.RawQuery
+	}
+	p.forwardToService(w, r, p.notificationServiceURL, upstreamPath)
+}
+
+// NotificationSendDetail proxies GET /admin/notifications/sends/{id} to
+// notification-service (the granular delivery status of one send job).
+func (p *ReviewerProxy) NotificationSendDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		http.Error(w, `{"error":"send job id is required"}`, http.StatusBadRequest)
+		return
+	}
+	p.forwardToService(w, r, p.notificationServiceURL, "/admin/notifications/sends/"+url.PathEscape(id))
 }
 
 // Audit proxies GET /admin/audit to auth-service: the merged audit viewer

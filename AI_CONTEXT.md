@@ -34,9 +34,10 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
   6. Payout Requests (`/api/payouts`, `/api/payouts/reject`): proxying to `user-service` (`/admin/payouts`, `/admin/payouts/reject`), with mandatory rejection reason (1–1000 chars) and wallet balance restoration.
   7. Audit Log (`/api/audit`): proxying to `auth-service` (`GET /admin/audit`, the merged fan-out of every service's `admin_audit` records with a per-source `ok`/`unavailable` map).
   8. App Version Policy (`/api/version`): proxying to the `api-gateway` over `GATEWAY_INTERNAL_URL` (`GET|PUT /admin/version`); the reason is validated locally (1-1000 chars) and the policy fields are forwarded untouched. The gateway only answers on the internal network and only with the internal-CA client certificate.
+  9. Admin Announcements (`/api/notifications/send`, `/api/notifications/sends`, `/api/notifications/sends/{id}`): proxying to `notification-service` (`/admin/notifications/send`, `/admin/notifications/sends`, `/admin/notifications/sends/{id}`). The reason, the bilingual title/body, the deep link and the audience selection are validated locally (the service's own contract); the service owns the audience lookup, the fan-out, the idempotency replay and the 5-sends-per-hour rate limit.
   All destructive and override operations enforce local input validation (mandatory reasons, 1–1000 characters) before forwarding to upstream services.
 - `cmd/server` — HTTP server with timeouts, CR/LF-sanitized logging, static UI serving, and route registration for all `/api/*` endpoints.
-- `web/` — vanilla UI as native ES modules under `web/js/` (`web/index.html` wiring `web/js/boot.js`; `web/js/core/` incl. `theme.js` (light/dark, `console_theme`) and `i18n.js` (Arabic default/RTL, English, `console_lang`; header toggles); bundled IBM Plex Sans Arabic woff2 in `web/fonts/`; `web/style.css` is token-based (navy #0D1321, gold #FFC107; light/dark via `html[data-theme]`); no build step; `web/js/pages/overview.js` renders `GET /api/overview` counters, the landing page of the console; `web/js/pages/kyc.js` is the queue list + review side panel with keyboard shortcuts (arrows/j/k, Enter, a, r, Esc, ?); `web/js/pages/accounts.js` is the accounts list + account drawer; `web/js/pages/jobs.js` is the jobs search + detail dialog with cancel / complete-stuck-COD (`/api/jobs/{id}`); `web/js/pages/services.js` is the marketplace moderation list with hide / unhide / photo-removal actions; `web/js/pages/subscriptions.js` is queue-first (upgrade queue default, all subscriptions second view; activation posts `{tenant_id, subscription_id, duration_days}`); `web/js/pages/disputes.js`, `tickets.js` and `payouts.js` share the console UI kit (core/ui/table.js, core/ui/dialog.js, core/ui/toast.js) with AR/EN strings; `web/js/core/cod-banner.js` renders the shell-level stuck-COD banner (overview `stuck_cod_jobs`); `web/js/pages/audit.js` is the merged audit viewer (filters by actor/action/target/date plus the per-source status strip); `web/js/pages/versions.js` shows the app version policy card and its update dialog (`PUT /api/version`, mandatory reason); `core/i18n.js` flattens nested translation groups into dotted keys) with tab-scoped session auth, search toolbars, status filters, pagination controls, dynamic badge counters, and action dialog modals.
+- `web/` — vanilla UI as native ES modules under `web/js/` (`web/index.html` wiring `web/js/boot.js`; `web/js/core/` incl. `theme.js` (light/dark, `console_theme`) and `i18n.js` (Arabic default/RTL, English, `console_lang`; header toggles); bundled IBM Plex Sans Arabic woff2 in `web/fonts/`; `web/style.css` is token-based (navy #0D1321, gold #FFC107; light/dark via `html[data-theme]`); no build step; `web/js/pages/overview.js` renders `GET /api/overview` counters, the landing page of the console; `web/js/pages/kyc.js` is the queue list + review side panel with keyboard shortcuts (arrows/j/k, Enter, a, r, Esc, ?); `web/js/pages/accounts.js` is the accounts list + account drawer; `web/js/pages/jobs.js` is the jobs search + detail dialog with cancel / complete-stuck-COD (`/api/jobs/{id}`); `web/js/pages/services.js` is the marketplace moderation list with hide / unhide / photo-removal actions; `web/js/pages/subscriptions.js` is queue-first (upgrade queue default, all subscriptions second view; activation posts `{tenant_id, subscription_id, duration_days}`); `web/js/pages/disputes.js`, `tickets.js` and `payouts.js` share the console UI kit (core/ui/table.js, core/ui/dialog.js, core/ui/toast.js) with AR/EN strings; `web/js/core/cod-banner.js` renders the shell-level stuck-COD banner (overview `stuck_cod_jobs`); `web/js/pages/audit.js` is the merged audit viewer (filters by actor/action/target/date plus the per-source status strip); `web/js/pages/versions.js` shows the app version policy card and its update dialog (`PUT /api/version`, mandatory reason); `web/js/pages/notifications.js` is the announcement composer (audience/title/body/deep link/reason, dry run, test user, confirmed audience size, idempotency key) plus the send history and its detail dialog; `core/i18n.js` flattens nested translation groups into dotted keys) with tab-scoped session auth, search toolbars, status filters, pagination controls, dynamic badge counters, and action dialog modals.
 - CI: `.github/workflows/ci.yml` (gofmt, build, vet, test, web tests, gosec);
   `.github/workflows/contract-sync.yml` responding to saas-core's `reviewer-api-contract` repository_dispatch.
 
@@ -61,6 +62,28 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
 - **Tests**: `web/audit_test.js` (7 tests), `internal/proxy/proxy_test.go`
   (audit forwarding + query, version GET/PUT + reason validation + untouched
   body), `cmd/server/routes_test.go` (route -> upstream path).
+
+### CONSOLE-V2 item 11: admin announcements
+
+- **Send contract**: `POST /api/notifications/send` proxies
+  `notification-service`'s `POST /admin/notifications/send`. The console
+  validates the mandatory reason (1-1000 chars), the bilingual title
+  (max 120 chars each) and body (max 1000 chars each), the in-app deep link
+  (only `/orders/{id}`, `/jobs/{id}`, `/plan`, `/verification`, `/tickets/{id}`
+  and their documented siblings) and the audience selection
+  (user needs an identifier, role needs a role, tenant needs a tenant id)
+  before anything reaches the service.
+- **History**: `GET /api/notifications/sends` lists the send jobs and
+  `GET /api/notifications/sends/{id}` opens the granular delivery status of
+  one job.
+- **Safety flow**: the composer has a dry run that resolves the audience
+  size without sending; a broadcast to "everyone" (or to 1,000+ users) is
+  answered by the service with `confirmation_required` and the resolved
+  size, which the console shows and pre-fills in the confirmation field.
+  The rate limit (5 sends per reviewer and hour) is reported in the page.
+- **Tests**: `web/notifications_test.js` (11 tests), `internal/proxy/proxy_test.go`
+  (forwarding, the validation table, the allowed deep links, list + detail),
+  `cmd/server/routes_test.go` (route -> upstream paths).
 
 ### CONSOLE-SEC: stored-XSS fix and console hardening
 

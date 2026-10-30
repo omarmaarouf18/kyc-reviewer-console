@@ -107,6 +107,7 @@ func TestStatic_OnlyUIAssetsServed(t *testing.T) {
 		"/js/pages/overview.js":                  http.StatusOK,
 		"/js/pages/jobs.js":                      http.StatusOK,
 		"/js/pages/services.js":                  http.StatusOK,
+		"/js/pages/notifications.js":             http.StatusOK,
 		"/js/core/cod-banner.js":                 http.StatusOK,
 		"/fonts/IBMPlexSansArabic-Regular.woff2": http.StatusOK,
 		"/fonts/IBMPlexSansArabic-Bold.woff2":    http.StatusOK,
@@ -217,6 +218,46 @@ func TestRoutes_AuditAndVersionReachTheirServices(t *testing.T) {
 	}
 	if gotMethod != http.MethodPut {
 		t.Errorf("upstream method = %q, want PUT", gotMethod)
+	}
+}
+
+func TestRoutes_NotificationEndpointsReachTheirUpstreams(t *testing.T) {
+	var gotPath string
+	var gotMethod string
+	h := testHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	body := `{"reason":"Emergency maintenance","audience":{"kind":"role","role":"customers"},"title":{"en":"Maintenance","ar":"صيانة"},"body":{"en":"Tonight","ar":"الليلة"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/notifications/send", strings.NewReader(body))
+	req.Header.Set("X-Reviewer-Token", "rev-test")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("POST /api/notifications/send = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if gotPath != "/admin/notifications/send" {
+		t.Errorf("upstream path = %q, want /admin/notifications/send", gotPath)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("upstream method = %q, want POST", gotMethod)
+	}
+
+	if got := serve(h, http.MethodGet, "/api/notifications/sends?page=1&limit=20").Code; got != http.StatusOK {
+		t.Errorf("GET /api/notifications/sends = %d, want 200", got)
+	}
+	if gotPath != "/admin/notifications/sends" {
+		t.Errorf("upstream path = %q, want /admin/notifications/sends", gotPath)
+	}
+
+	if got := serve(h, http.MethodGet, "/api/notifications/sends/send-1").Code; got != http.StatusOK {
+		t.Errorf("GET /api/notifications/sends/{id} = %d, want 200", got)
+	}
+	if gotPath != "/admin/notifications/sends/send-1" {
+		t.Errorf("upstream path = %q, want /admin/notifications/sends/send-1", gotPath)
 	}
 }
 

@@ -70,6 +70,9 @@
         <button id="tab-versions-btn" class="nav-item" type="button">
           <span data-i18n="nav.versions">إصدارات التطبيق</span>
         </button>
+        <button id="tab-notifications-btn" class="nav-item" type="button">
+          <span data-i18n="nav.notifications">الإشعارات</span>
+        </button>
       </nav>
 
       <main id="console-main">
@@ -686,6 +689,127 @@
         <button id="versions-update-btn" type="button" data-i18n="versions.update">تحديث سياسة الإصدارات</button>
       </menu>
     </section>
+
+    <!-- Admin announcements & broadcast notifications (ADMIN_API § 12) -->
+    <section id="notifications-section" hidden>
+      <header>
+        <h2 data-i18n="notifications.title">الإشعارات والإعلانات</h2>
+        <button id="refresh-notifications-btn" type="button" data-i18n="notifications.refresh">تحديث</button>
+      </header>
+
+      <p id="notifications-error" class="error banner" hidden></p>
+
+      <form id="notif-compose-form" class="composer" autocomplete="off">
+        <fieldset>
+          <legend data-i18n="notifications.audience.label">الجمهور</legend>
+          <label for="notif-audience-kind" data-i18n="notifications.audience.kind">نوع الجمهور</label>
+          <select id="notif-audience-kind">
+            <option value="everyone" data-i18n="notifications.audience.everyone">الجميع</option>
+            <option value="role" data-i18n="notifications.audience.role">دور</option>
+            <option value="tenant" data-i18n="notifications.audience.tenant">تاجر</option>
+            <option value="user" data-i18n="notifications.audience.user">مستخدم محدد</option>
+          </select>
+
+          <div id="notif-audience-user-fields" class="field-group" hidden>
+            <label for="notif-audience-user-id" data-i18n="notifications.audience.userId">معرف المستخدم</label>
+            <input type="text" id="notif-audience-user-id" />
+            <label for="notif-audience-email" data-i18n="notifications.audience.email">البريد الإلكتروني</label>
+            <input type="text" id="notif-audience-email" />
+            <label for="notif-audience-phone" data-i18n="notifications.audience.phone">رقم الهاتف</label>
+            <input type="text" id="notif-audience-phone" />
+          </div>
+
+          <div id="notif-audience-role-fields" class="field-group" hidden>
+            <label for="notif-audience-role" data-i18n="notifications.audience.roleLabel">الدور</label>
+            <select id="notif-audience-role">
+              <option value="customers" data-i18n="notifications.audience.roleCustomers">العملاء</option>
+              <option value="owners" data-i18n="notifications.audience.roleOwners">أصحاب المتاجر</option>
+              <option value="couriers" data-i18n="notifications.audience.roleCouriers">المندوبون</option>
+            </select>
+          </div>
+
+          <div id="notif-audience-tenant-fields" class="field-group" hidden>
+            <label for="notif-audience-tenant-id" data-i18n="notifications.audience.tenantId">معرف التاجر</label>
+            <input type="text" id="notif-audience-tenant-id" />
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend data-i18n="notifications.content.title">محتوى الإعلان</legend>
+          <label for="notif-title-ar" data-i18n="notifications.content.titleAr">العنوان (عربي)</label>
+          <input type="text" id="notif-title-ar" maxlength="120" />
+          <label for="notif-title-en" data-i18n="notifications.content.titleEn">العنوان (إنجليزي)</label>
+          <input type="text" id="notif-title-en" maxlength="120" />
+          <label for="notif-body-ar" data-i18n="notifications.content.bodyAr">النص (عربي)</label>
+          <textarea id="notif-body-ar" maxlength="1000" rows="3"></textarea>
+          <label for="notif-body-en" data-i18n="notifications.content.bodyEn">النص (إنجليزي)</label>
+          <textarea id="notif-body-en" maxlength="1000" rows="3"></textarea>
+          <label for="notif-deep-link" data-i18n="notifications.content.deepLink">رابط التطبيق الداخلي (اختياري)</label>
+          <input type="text" id="notif-deep-link" />
+          <p class="muted small" data-i18n="notifications.content.deepLinkHint">المسارات المسموحة</p>
+        </fieldset>
+
+        <fieldset>
+          <legend data-i18n="notifications.options.label">خيارات متقدمة</legend>
+          <label for="notif-reason"><span data-i18n="notifications.content.reason">سبب الإرسال</span> <span class="required">*</span></label>
+          <textarea id="notif-reason" maxlength="1000" rows="2"></textarea>
+          <p class="muted small" data-i18n="notifications.content.reasonHint">إلزامي (من 1 إلى 1000 حرف)</p>
+
+          <label class="checkbox-label"><input type="checkbox" id="notif-dry-run" /> <span data-i18n="notifications.options.dryRun">تجربة فقط</span></label>
+          <label for="notif-test-user-id" data-i18n="notifications.options.testUserId">معرف المستخدم للاختبار</label>
+          <input type="text" id="notif-test-user-id" />
+          <label for="notif-confirm-size" data-i18n="notifications.options.confirmSize">تأكيد حجم الجمهور</label>
+          <input type="number" id="notif-confirm-size" min="0" step="1" />
+          <p class="muted small" data-i18n="notifications.options.confirmSizeHint">مطلوب عند اختيار «الجميع»</p>
+          <label for="notif-idempotency-key" data-i18n="notifications.options.idempotency">مفتاح التفرّد</label>
+          <input type="text" id="notif-idempotency-key" />
+          <p class="muted small" data-i18n="notifications.options.idempotencyHint">يمنع الإرسال المزدوج</p>
+        </fieldset>
+
+        <p id="notif-send-error" class="error" hidden></p>
+        <p id="notif-send-result" class="info-callout" hidden></p>
+
+        <menu class="page-actions">
+          <button id="notif-dry-run-btn" type="button" class="secondary" data-i18n="notifications.actions.dryRun">حساب حجم الجمهور</button>
+          <button id="notif-send-btn" type="button" data-i18n="notifications.actions.send">إرسال الإعلان</button>
+        </menu>
+      </form>
+
+      <table id="notif-sends-table">
+        <thead>
+          <tr>
+            <th data-i18n="notifications.col.id">معرف الإرسال</th>
+            <th data-i18n="notifications.col.created">تاريخ الإنشاء</th>
+            <th data-i18n="notifications.col.reviewer">المراجع</th>
+            <th data-i18n="notifications.col.audience">الجمهور</th>
+            <th data-i18n="notifications.col.size">الحجم</th>
+            <th data-i18n="notifications.col.status">الحالة</th>
+            <th data-i18n="notifications.col.delivery">التسليم</th>
+            <th data-i18n="notifications.col.deepLink">الرابط</th>
+            <th data-i18n="notifications.col.action">إجراء</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="pagination-bar">
+        <span id="notif-sends-count" class="muted"></span>
+        <div class="pagination-controls">
+          <button id="notif-sends-prev-btn" type="button" class="secondary" disabled>&larr; Prev</button>
+          <span id="notif-sends-page-info">Page 1</span>
+          <button id="notif-sends-next-btn" type="button" class="secondary" disabled>Next &rarr;</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Dialog: Send details (ADMIN_API § 12) -->
+    <dialog id="notification-send-dialog">
+      <h2 data-i18n="notifications.detail.title">تفاصيل الإرسال</h2>
+      <div id="notification-send-details" class="dispute-details-card"></div>
+      <menu>
+        <button id="notification-send-close" type="button" class="secondary" data-i18n="notifications.detail.close">إغلاق</button>
+      </menu>
+    </dialog>
 
     <!-- Dialog: Resolve Reconciliation Dispute (ADR-0023) -->
     <dialog id="resolve-dispute-dialog">

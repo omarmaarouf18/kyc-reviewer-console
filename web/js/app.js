@@ -14,6 +14,7 @@ export * from './pages/tickets.js';
 export * from './pages/payouts.js';
 export * from './pages/audit.js';
 export * from './pages/versions.js';
+export * from './pages/notifications.js';
 
 export * from './core/dom.js';
 export * from './core/format.js';

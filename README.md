@@ -128,6 +128,12 @@ Deploy the container on the same compose network (`saas-net`) so downstream serv
    - Shows the latest release, the minimum supported version, the enforcement flag, the store download URL and the policy revision.
    - Update the policy with a mandatory reason (1–1000 chars); the proxy validates the reason locally and forwards the policy fields untouched.
    - The gateway is reached over `GATEWAY_INTERNAL_URL` with the console's internal-CA client certificate (it answers 403 otherwise).
+11. **Notifications & Announcements** (`/api/notifications/send`, `/api/notifications/sends`, `/api/notifications/sends/{id}` → notification-service):
+   - Compose an admin announcement: audience (user / role / tenant / everyone), Arabic + English title and body, an optional in-app deep link, and the mandatory reason.
+   - **Dry run** resolves the audience size without sending anything; a broadcast to everyone (or to 1,000+ users) must be confirmed with the resolved size before it is queued.
+   - Optional safety knobs: send a test to one user, an idempotency key (double-click protection) and the confirmed audience size.
+   - The send history lists every job with its status and delivery counters; a details dialog shows one job in detail.
+   - The service owns the audience lookup, the fan-out and the rate limit (5 sends per reviewer and hour).
 
 ## CI/CD
 
