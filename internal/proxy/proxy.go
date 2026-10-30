@@ -511,6 +511,115 @@ func (p *ReviewerProxy) ResolveReconciliation(w http.ResponseWriter, r *http.Req
 }
 
 // Subscriptions proxies GET /admin/subscriptions to user-service (ADR-0023).
+// Jobs proxies GET /admin/jobs to user-service (job search across tenants).
+func (p *ReviewerProxy) Jobs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	upstreamPath := "/admin/jobs"
+	if r.URL.RawQuery != "" {
+		upstreamPath += "?" + r.URL.RawQuery
+	}
+	p.forwardToService(w, r, p.userServiceURL, upstreamPath)
+}
+
+// jobID returns the {id} path value, escaped for the upstream URL.
+func jobID(r *http.Request) (string, bool) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		return "", false
+	}
+	return url.PathEscape(id), true
+}
+
+// JobDetail proxies GET /admin/jobs/{id}. The response carries unmasked
+// phones; the upstream records the job.view audit entry for every call.
+func (p *ReviewerProxy) JobDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	id, ok := jobID(r)
+	if !ok {
+		http.Error(w, `{"error":"job id is required"}`, http.StatusBadRequest)
+		return
+	}
+	p.forwardToService(w, r, p.userServiceURL, "/admin/jobs/"+id)
+}
+
+type jobReasonRequest struct {
+	Reason string `json:"reason"`
+}
+
+// validateJobReason enforces the shared contract of the job mutations: a
+// reason is mandatory and at most 1000 characters.
+func validateJobReason(w http.ResponseWriter, r *http.Request) (string, bool) {
+	var req jobReasonRequest
+	if !decodeJSON(w, r, &req) {
+		return "", false
+	}
+	if strings.TrimSpace(req.Reason) == "" {
+		http.Error(w, `{"error":"reason is required"}`, http.StatusBadRequest)
+		return "", false
+	}
+	if len(req.Reason) > 1000 {
+		http.Error(w, `{"error":"reason cannot exceed 1000 characters"}`, http.StatusBadRequest)
+		return "", false
+	}
+	return req.Reason, true
+}
+
+// CancelJob proxies POST /admin/jobs/{id}/cancel.
+func (p *ReviewerProxy) CancelJob(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"use POST"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	id, ok := jobID(r)
+	if !ok {
+		http.Error(w, `{"error":"job id is required"}`, http.StatusBadRequest)
+		return
+	}
+	reason, ok := validateJobReason(w, r)
+	if !ok {
+		return
+	}
+
+	payload, err := json.Marshal(jobReasonRequest{Reason: reason})
+	if err != nil {
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(payload))
+	p.forwardToService(w, r, p.userServiceURL, "/admin/jobs/"+id+"/cancel")
+}
+
+// CompleteStuckCOD proxies POST /admin/jobs/{id}/complete-stuck-cod.
+func (p *ReviewerProxy) CompleteStuckCOD(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"use POST"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	id, ok := jobID(r)
+	if !ok {
+		http.Error(w, `{"error":"job id is required"}`, http.StatusBadRequest)
+		return
+	}
+	reason, ok := validateJobReason(w, r)
+	if !ok {
+		return
+	}
+
+	payload, err := json.Marshal(jobReasonRequest{Reason: reason})
+	if err != nil {
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(payload))
+	p.forwardToService(w, r, p.userServiceURL, "/admin/jobs/"+id+"/complete-stuck-cod")
+}
+
 // Overview proxies GET /admin/overview to user-service (which aggregates the
 // auth-service and chat-service internal overview stats itself). Figures for
 // a backend that fails inside user-service arrive as the string

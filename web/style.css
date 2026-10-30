@@ -299,6 +299,21 @@ body {
   .side-panel { position: static; max-height: none; }
 }
 
+/* ---- Job detail ------------------------------------------------------------ */
+
+.job-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.job-history-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 /* ---- Account drawer (overlay) ---------------------------------------------- */
 
 .drawer-backdrop {

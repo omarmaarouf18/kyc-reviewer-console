@@ -46,6 +46,9 @@
         <button id="tab-accounts-btn" class="nav-item" type="button">
           <span data-i18n="nav.accounts">الحسابات</span>
         </button>
+        <button id="tab-jobs-btn" class="nav-item" type="button">
+          <span data-i18n="nav.jobs">المهام</span>
+        </button>
         <button id="tab-reconciliation-btn" class="nav-item" type="button">
           <span data-i18n="nav.reconciliation">النزاعات والمطابقة</span><span id="reconciliation-badge" class="pill">0</span>
         </button>
@@ -186,7 +189,62 @@
       </aside>
     </section>
 
-    <!-- TAB 3: Disputes & Reconciliation (ADR-0023) -->
+    <!-- TAB 3: Jobs Lookup -->
+    <section id="jobs-section" hidden>
+      <header>
+        <h2 data-i18n="jobs.title">المهام</h2>
+        <button id="refresh-jobs-btn" type="button" data-i18n="jobs.refresh">تحديث</button>
+      </header>
+
+      <form id="jobs-filter-form" class="toolbar">
+        <input type="text" id="jobs-id-input" placeholder="Job ID" autocomplete="off" />
+        <input type="text" id="jobs-customer-input" placeholder="Customer ID" autocomplete="off" />
+        <select id="jobs-status-filter">
+          <option value="">All Statuses</option>
+          <option value="pending">Pending</option>
+          <option value="pending_dispatch">Pending dispatch</option>
+          <option value="unavailable">Unavailable</option>
+          <option value="awaiting_price_response">Awaiting price response</option>
+          <option value="active">Active</option>
+          <option value="completed">Completed</option>
+          <option value="cancelled">Cancelled</option>
+          <option value="escrow_reconciliation_required">Escrow reconciliation required</option>
+        </select>
+        <input type="date" id="jobs-from-input" />
+        <input type="date" id="jobs-to-input" />
+        <button type="submit" data-i18n="jobs.filter">بحث</button>
+        <button type="button" id="jobs-reset-btn" class="secondary" data-i18n="jobs.reset">مسح</button>
+      </form>
+
+      <p id="jobs-error" class="error banner" hidden></p>
+
+      <table id="jobs-table">
+        <thead>
+          <tr>
+            <th data-i18n="jobs.col.id">Job ID</th>
+            <th data-i18n="jobs.col.status">Status</th>
+            <th data-i18n="jobs.col.customer">Customer</th>
+            <th data-i18n="jobs.col.recipient">Recipient</th>
+            <th data-i18n="jobs.col.price">Price</th>
+            <th data-i18n="jobs.col.payment">Payment</th>
+            <th data-i18n="jobs.col.created">Created</th>
+            <th data-i18n="jobs.col.action">Action</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="pagination-bar">
+        <span id="jobs-count" class="muted"></span>
+        <div class="pagination-controls">
+          <button id="jobs-prev-btn" type="button" class="secondary" disabled>&larr; Prev</button>
+          <span id="jobs-page-info">Page 1</span>
+          <button id="jobs-next-btn" type="button" class="secondary" disabled>Next &rarr;</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: Disputes & Reconciliation (ADR-0023) -->
     <section id="reconciliation-section" hidden>
       <header>
         <h2>Disputes & Escrow Reconciliation</h2>
@@ -415,6 +473,51 @@
       <menu>
         <button id="reactivate-cancel" type="button" class="secondary">Cancel</button>
         <button id="reactivate-submit" type="button">Reactivate Account</button>
+      </menu>
+    </dialog>
+
+    <!-- Dialog: Job detail (ADMIN_API § 3: carries unmasked phones) -->
+    <dialog id="job-detail-dialog">
+      <h2 data-i18n="jobs.detail.title">تفاصيل المهمة</h2>
+      <p id="job-detail-target" class="muted"></p>
+      <div id="job-detail-body" class="dispute-details-card"></div>
+      <h3 data-i18n="jobs.detail.history">سجل الحالة</h3>
+      <div id="job-detail-history" class="job-history"></div>
+      <p id="job-detail-error" class="error" hidden></p>
+      <menu>
+        <button id="job-detail-cancel-job" type="button" class="danger" data-i18n="jobs.detail.cancelJob">إلغاء المهمة</button>
+        <button id="job-detail-complete-cod" type="button" data-i18n="jobs.detail.completeCod">إتمام COD عالق</button>
+        <button id="job-detail-close" type="button" class="secondary" data-i18n="jobs.detail.close">إغلاق</button>
+      </menu>
+    </dialog>
+
+    <!-- Dialog: Cancel Job -->
+    <dialog id="job-cancel-dialog">
+      <h2 data-i18n="jobs.cancel.title">إلغاء المهمة</h2>
+      <p id="job-cancel-target" class="muted"></p>
+      <p class="warning-callout" data-i18n="jobs.cancel.warning">Cancelling releases courier locks, refunds locked escrow for wallet-paid jobs and notifies the parties.</p>
+      <label for="job-cancel-reason"><span data-i18n="jobs.cancel.reason">سبب الإلغاء</span> <span class="required">*</span></label>
+      <textarea id="job-cancel-reason" maxlength="1000" rows="3" required
+        placeholder="Why is this job cancelled?"></textarea>
+      <p id="job-cancel-error" class="error" hidden></p>
+      <menu>
+        <button id="job-cancel-cancel" type="button" class="secondary" data-i18n="jobs.cancel.close">إلغاء</button>
+        <button id="job-cancel-submit" type="button" class="danger" data-i18n="jobs.cancel.submit">تأكيد الإلغاء</button>
+      </menu>
+    </dialog>
+
+    <!-- Dialog: Complete Stuck COD Job -->
+    <dialog id="job-cod-dialog">
+      <h2 data-i18n="jobs.cod.title">إتمام مهمة COD عالقة</h2>
+      <p id="job-cod-target" class="muted"></p>
+      <p class="info-callout" data-i18n="jobs.cod.info">Only for jobs in escrow reconciliation with cash already collected (payment method COD, no locked escrow).</p>
+      <label for="job-cod-reason"><span data-i18n="jobs.cod.reason">سبب الإتمام</span> <span class="required">*</span></label>
+      <textarea id="job-cod-reason" maxlength="1000" rows="3" required
+        placeholder="How was the cash collection verified?"></textarea>
+      <p id="job-cod-error" class="error" hidden></p>
+      <menu>
+        <button id="job-cod-cancel" type="button" class="secondary" data-i18n="jobs.cod.close">إلغاء</button>
+        <button id="job-cod-submit" type="button" data-i18n="jobs.cod.submit">تأكيد الإتمام</button>
       </menu>
     </dialog>
 

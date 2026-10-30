@@ -12,6 +12,21 @@ const accountsState = {
   rows: [],
 };
 
+const jobsState = {
+  page: 1,
+  limit: 20,
+  jobId: '',
+  customerId: '',
+  status: '',
+  from: '',
+  to: '',
+  total: 0,
+  rows: [],
+  currentId: '',
+  cancelTarget: null,
+  codTarget: null,
+};
+
 const reconciliationState = {
   page: 1,
   limit: 15,
@@ -68,6 +83,7 @@ const state = {
   lastUserDocsReason: '',
   // Page states
   queueState,
+  jobsState,
   accountsState,
   reconciliationState,
   subscriptionsState,
@@ -98,6 +114,10 @@ export function resetSessionState() {
   state.currentUserDocsTarget = null;
   state.lastUserDocsReason = '';
   Object.assign(queueState, { submissions: [], selectedIndex: -1, current: null });
+  Object.assign(jobsState, {
+    page: 1, jobId: '', customerId: '', status: '', from: '', to: '', total: 0,
+    rows: [], currentId: '', cancelTarget: null, codTarget: null,
+  });
   Object.assign(accountsState, { page: 1, search: '', role: '', status: '', total: 0, rows: [] });
   Object.assign(reconciliationState, { page: 1, total: 0 });
   Object.assign(subscriptionsState, { page: 1, search: '', status: '', total: 0 });

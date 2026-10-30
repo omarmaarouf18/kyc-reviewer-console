@@ -314,6 +314,141 @@ func TestReactivate_ValidPayloadForwarded(t *testing.T) {
 	}
 }
 
+func TestJobs_ForwardsToUserServiceWithQuery(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`{"jobs":[{"id":"job-98712","status":"active"}],"total":1,"page":1,"limit":20}`)}
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	p := NewWithUserService("secret-internal-token", "https://auth-service", upstream.URL, upstream.Client())
+	t.Cleanup(upstream.Close)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/jobs?status=active&page=2", nil)
+	req.Header.Set("X-Reviewer-Token", "reviewer-tok-abc")
+	rec := httptest.NewRecorder()
+	p.Jobs(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if stub.gotPath != "/admin/jobs" {
+		t.Errorf("unexpected upstream path: %q", stub.gotPath)
+	}
+	if stub.gotRawQuery != "status=active&page=2" {
+		t.Errorf("query not forwarded: %q", stub.gotRawQuery)
+	}
+	if stub.gotInternal != "secret-internal-token" || stub.gotReviewer != "reviewer-tok-abc" {
+		t.Errorf("tokens not forwarded correctly: internal=%q reviewer=%q", stub.gotInternal, stub.gotReviewer)
+	}
+}
+
+func TestJobDetail_ForwardsEscapedJobID(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK, responseBytes: []byte(`{"id":"job-1"}`)}
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	p := NewWithUserService("secret-internal-token", "https://auth-service", upstream.URL, upstream.Client())
+	t.Cleanup(upstream.Close)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/jobs/job-1", nil)
+	req.SetPathValue("id", "job-1")
+	req.Header.Set("X-Reviewer-Token", "tok")
+	rec := httptest.NewRecorder()
+	p.JobDetail(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if stub.gotPath != "/admin/jobs/job-1" {
+		t.Errorf("unexpected upstream path: %q", stub.gotPath)
+	}
+}
+
+func TestJobDetail_RejectsEmptyID(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK}
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	p := NewWithUserService("secret-internal-token", "https://auth-service", upstream.URL, upstream.Client())
+	t.Cleanup(upstream.Close)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/jobs/", nil)
+	req.SetPathValue("id", "  ")
+	req.Header.Set("X-Reviewer-Token", "tok")
+	rec := httptest.NewRecorder()
+	p.JobDetail(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("empty job id = %d, want 400", rec.Code)
+	}
+	if stub.gotPath != "" {
+		t.Errorf("empty job id must not reach the upstream (saw %q)", stub.gotPath)
+	}
+}
+
+func TestJobMutations_ValidateReasonBeforeUpstream(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"missing reason", `{}`, "reason is required"},
+		{"blank reason", `{"reason":"   "}`, "reason is required"},
+		{"oversized reason", `{"reason":"` + strings.Repeat("x", 1001) + `"}`, "1000 characters"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &upstreamStub{t: t, statusCode: http.StatusOK}
+			upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+			p := NewWithUserService("secret-internal-token", "https://auth-service", upstream.URL, upstream.Client())
+			t.Cleanup(upstream.Close)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/jobs/job-1/cancel", strings.NewReader(tc.body))
+			req.SetPathValue("id", "job-1")
+			req.Header.Set("X-Reviewer-Token", "tok")
+			rec := httptest.NewRecorder()
+			p.CancelJob(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("cancel = %d, want 400", rec.Code)
+			}
+			if !strings.Contains(rec.Body.String(), tc.want) {
+				t.Errorf("cancel body %q missing %q", rec.Body.String(), tc.want)
+			}
+			if stub.gotPath != "" {
+				t.Errorf("invalid request must not reach the upstream (saw %q)", stub.gotPath)
+			}
+		})
+	}
+}
+
+func TestJobMutations_ForwardReasonAndPath(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		call func(p *ReviewerProxy, w http.ResponseWriter, r *http.Request)
+		path string
+	}{
+		{"cancel", (*ReviewerProxy).CancelJob, "/admin/jobs/job-42/cancel"},
+		{"complete stuck cod", (*ReviewerProxy).CompleteStuckCOD, "/admin/jobs/job-42/complete-stuck-cod"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &upstreamStub{t: t, statusCode: http.StatusOK, responseBytes: []byte(`{"success":true}`)}
+			upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+			p := NewWithUserService("secret-internal-token", "https://auth-service", upstream.URL, upstream.Client())
+			t.Cleanup(upstream.Close)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/jobs/job-42", strings.NewReader(`{"reason":"customer requested"}`))
+			req.SetPathValue("id", "job-42")
+			req.Header.Set("X-Reviewer-Token", "tok")
+			rec := httptest.NewRecorder()
+			tc.call(p, rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if stub.gotPath != tc.path {
+				t.Errorf("unexpected upstream path: %q", stub.gotPath)
+			}
+			if stub.gotBody["reason"] != "customer requested" {
+				t.Errorf("reason not forwarded: %+v", stub.gotBody)
+			}
+		})
+	}
+}
+
 func TestOverview_ForwardsToUserServiceWithTokens(t *testing.T) {
 	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
 		responseBytes: []byte(`{"pending_kyb_kye":14,"pending_payment_subscriptions":3,"open_tickets":5,"assigned_tickets":2,"gps_disputes":2,"stuck_cod_jobs":1,"jobs_today":{"pending_dispatch":5,"active":12,"completed":45,"cancelled":2},"new_accounts_today":18,"new_accounts_7d":114,"suspended_accounts":"unavailable"}`)}

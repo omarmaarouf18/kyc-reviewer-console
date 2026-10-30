@@ -103,6 +103,7 @@ func TestStatic_OnlyUIAssetsServed(t *testing.T) {
 		"/js/app.js":                             http.StatusOK,
 		"/js/pages/kyc.js":                       http.StatusOK,
 		"/js/pages/overview.js":                  http.StatusOK,
+		"/js/pages/jobs.js":                      http.StatusOK,
 		"/fonts/IBMPlexSansArabic-Regular.woff2": http.StatusOK,
 		"/fonts/IBMPlexSansArabic-Bold.woff2":    http.StatusOK,
 		// The OFL license and any other file under web/fonts/ stay unserved.
@@ -144,6 +145,38 @@ func TestSecurityHeaders_DocumentStreamKeepsUpstreamType(t *testing.T) {
 		if rec.Header().Get("Cache-Control") != "no-store" || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
 			t.Errorf("%s: missing no-store/nosniff on document stream", target)
 		}
+	}
+}
+
+func TestRoutes_JobPathParamsReachUpstream(t *testing.T) {
+	var gotPath string
+	var gotMethod string
+	h := testHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	if got := serve(h, http.MethodGet, "/api/jobs/job-98712").Code; got != http.StatusOK {
+		t.Errorf("GET /api/jobs/{id} = %d, want 200", got)
+	}
+	if gotPath != "/admin/jobs/job-98712" {
+		t.Errorf("upstream path = %q, want /admin/jobs/job-98712", gotPath)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/jobs/job-98712/cancel", strings.NewReader(`{"reason":"duplicate order"}`))
+	req.Header.Set("X-Reviewer-Token", "rev-test")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("POST /api/jobs/{id}/cancel = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if gotPath != "/admin/jobs/job-98712/cancel" {
+		t.Errorf("upstream path = %q, want /admin/jobs/job-98712/cancel", gotPath)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("upstream method = %q, want POST", gotMethod)
 	}
 }
 
