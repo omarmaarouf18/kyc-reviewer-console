@@ -32,7 +32,7 @@ func TestSecurityHeaders_EveryResponse(t *testing.T) {
 		_, _ = w.Write([]byte(`[]`))
 	})
 
-	for _, target := range []string{"/", "/app.js", "/style.css", "/healthz", "/api/queue", "/api/nope", "/missing.js"} {
+	for _, target := range []string{"/", "/js/boot.js", "/js/pages/kyc.js", "/style.css", "/healthz", "/api/queue", "/api/nope", "/missing.js"} {
 		rec := serve(h, http.MethodGet, target)
 		hdr := rec.Header()
 		csp := hdr.Get("Content-Security-Policy")
@@ -94,15 +94,22 @@ func TestContentSecurityPolicy_WebSocketOrigin(t *testing.T) {
 func TestStatic_OnlyUIAssetsServed(t *testing.T) {
 	h := testHandler(t, func(http.ResponseWriter, *http.Request) {})
 	for target, want := range map[string]int{
-		"/":               http.StatusOK,
-		"/app.js":         http.StatusOK,
-		"/style.css":      http.StatusOK,
-		"/app_test.js":    http.StatusNotFound,
-		"/testdom.js":     http.StatusNotFound,
-		"/xss_test.js":    http.StatusNotFound,
-		"/go.mod":         http.StatusNotFound,
-		"/.git/HEAD":      http.StatusNotFound,
-		"/web/index.html": http.StatusNotFound,
+		"/": http.StatusOK,
+		// http.ServeFile canonicalises /index.html to ./ with a redirect.
+		"/index.html":      http.StatusMovedPermanently,
+		"/style.css":       http.StatusOK,
+		"/js/boot.js":      http.StatusOK,
+		"/js/app.js":       http.StatusOK,
+		"/js/pages/kyc.js": http.StatusOK,
+		"/js/package.json": http.StatusNotFound,
+		"/app.js":          http.StatusNotFound,
+		"/legacy.js":       http.StatusNotFound,
+		"/app_test.js":     http.StatusNotFound,
+		"/testdom.js":      http.StatusNotFound,
+		"/xss_test.js":     http.StatusNotFound,
+		"/go.mod":          http.StatusNotFound,
+		"/.git/HEAD":       http.StatusNotFound,
+		"/web/index.html":  http.StatusNotFound,
 	} {
 		if got := serve(h, http.MethodGet, target).Code; got != want {
 			t.Errorf("GET %s = %d, want %d", target, got, want)
@@ -111,8 +118,8 @@ func TestStatic_OnlyUIAssetsServed(t *testing.T) {
 	if got := serve(h, http.MethodPost, "/").Code; got != http.StatusMethodNotAllowed {
 		t.Errorf("POST / = %d, want 405", got)
 	}
-	if ct := serve(h, http.MethodGet, "/app.js").Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/javascript") {
-		t.Errorf("app.js Content-Type = %q (nosniff needs a JS type)", ct)
+	if ct := serve(h, http.MethodGet, "/js/boot.js").Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/javascript") {
+		t.Errorf("boot.js Content-Type = %q (nosniff needs a JS type)", ct)
 	}
 }
 

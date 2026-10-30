@@ -33,7 +33,7 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
   6. Payout Requests (`/api/payouts`, `/api/payouts/reject`): proxying to `user-service` (`/admin/payouts`, `/admin/payouts/reject`), with mandatory rejection reason (1–1000 chars) and wallet balance restoration.
   All destructive and override operations enforce local input validation (mandatory reasons, 1–1000 characters) before forwarding to upstream services.
 - `cmd/server` — HTTP server with timeouts, CR/LF-sanitized logging, static UI serving, and route registration for all `/api/*` endpoints.
-- `web/` — 6-tab vanilla UI (`web/index.html`, `web/app.js`, `web/style.css`) with tab-scoped session auth, search toolbars, status filters, pagination controls, dynamic badge counters, and action dialog modals.
+- `web/` — vanilla UI as native ES modules under `web/js/` (`web/index.html` wiring `web/js/boot.js`; `web/js/core/`, `web/js/pages/`; no build step) with tab-scoped session auth, search toolbars, status filters, pagination controls, dynamic badge counters, and action dialog modals.
 - CI: `.github/workflows/ci.yml` (gofmt, build, vet, test, web tests, gosec);
   `.github/workflows/contract-sync.yml` responding to saas-core's `reviewer-api-contract` repository_dispatch.
 
@@ -43,14 +43,14 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
 
 - **XSS rule (item 1)**: API data (names, emails, ids, notes, reasons, ticket
   messages, file names, enums) reaches the DOM only through `textContent`,
-  via the `el()` / `badge()` / `detailRow()` helpers in `web/app.js`.
+  via the `el()` / `badge()` / `detailRow()` helpers in `web/js/core/dom.js`.
   `innerHTML` remains only for static markup with no interpolation. Badge
   classes come from fixed maps, never from API values. Documents and chat
   attachments open from blob: URLs re-typed by `safeBlobUrl()`: only
   images/PDF render inline, anything else (e.g. `text/html`) becomes a
   download, because a blob: page would run in the console origin.
 - **Web tests run the real app**: `web/testdom.js` is a dependency-free DOM
-  that parses `web/index.html` and runs `web/app.js` in a `vm` context;
+  that parses `web/index.html` and loads the `web/js/` ES modules with a DOM shim;
   `web/xss_test.js` renders every table/dialog with
   `<img src=x onerror=alert(1)>` payloads and asserts no element or `on*`
   attribute was created. Run: `node --test web/*_test.js`.
@@ -65,10 +65,10 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
   on `/api/*`. The Host header is validated before it is echoed into the
   CSP. No inline script, handler or style attribute may be added to
   `web/` (CSP blocks them). Static serving is an allow-list (`/`,
-  `/index.html`, `/app.js`, `/style.css`) so test files under `web/` are
+  `/index.html`, `/style.css`, explicit `/js/*.js` entries) so test files under `web/` are
   never served. Tests: `cmd/server/routes_test.go`.
 - **Session hygiene (item 3)**: idle sign-out after `IDLE_TIMEOUT_MS`
-  (30 min, `web/app.js`) without pointer/keyboard activity, checked every
+  (30 min, `web/js/core/session.js`) without pointer/keyboard activity, checked every
   30 s and on page load (last activity is kept in sessionStorage so a
   reload does not extend a stale session). Every 401 (all calls go through
   `api()`, including attachment upload) and "Sign out" run the same

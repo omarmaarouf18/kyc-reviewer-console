@@ -1,5 +1,5 @@
-// UI contract tests against the real app.js: disputes show only fields the
-// user-service queue item has, payouts use EGP and saas-core statuses.
+// UI contract tests against the real ES modules: disputes show only fields
+// the user-service queue item has, payouts use EGP and saas-core statuses.
 // Run with: node --test web/*_test.js
 
 const test = require('node:test');
@@ -28,8 +28,8 @@ const queueItem = {
   updated_at: '2026-10-28T10:05:00Z',
 };
 
-test('dispute dialog shows only fields the queue item has', () => {
-  const env = loadApp();
+test('dispute dialog shows only fields the queue item has', async () => {
+  const env = await loadApp();
   env.ctx.openResolveDisputeDialog(queueItem);
   const text = env.doc.getElementById('resolve-dispute-details').textContent;
   assert.doesNotMatch(text, /undefined|\(none\)|Route|Category|→/);
@@ -45,7 +45,7 @@ test('dispute dialog shows only fields the queue item has', () => {
 });
 
 test('dispute rows show no invented route or category', async () => {
-  const env = loadApp({ fetch: async () => jsonResponse({ disputes: [queueItem], total: 1 }) });
+  const env = await loadApp({ fetch: async () => jsonResponse({ disputes: [queueItem], total: 1 }) });
   await env.ctx.loadReconciliation();
   const text = env.doc.getElementById('reconciliation-table').textContent;
   assert.doesNotMatch(text, /undefined|Pickup|Dropoff|&rarr;|Delivery/);
@@ -53,7 +53,7 @@ test('dispute rows show no invented route or category', async () => {
 });
 
 test('payouts are shown in EGP with saas-core statuses', async () => {
-  const env = loadApp({
+  const env = await loadApp({
     fetch: async () => jsonResponse({ payouts: [{ id: 'po1', tenant_id: 't1', amount: 250, status: 'paid', payout_method: 'instapay' }], total: 1 }),
   });
   await env.ctx.loadPayouts();

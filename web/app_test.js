@@ -1,243 +1,100 @@
-// Unit test suite for kyc-reviewer-console/web/app.js auth & error-handling semantics.
-// Run with: node --test web/app_test.js
+// Unit tests for the console API client and mutation pages, run against the
+// real ES modules (moved from the app.js copy tests in CONSOLE-V2 item 1:
+// every function under test here is the real implementation).
+// Run with: node --test web/*_test.js
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { loadApp, jsonResponse } = require('./testdom.js');
 
-// Minimal DOM & Web API mock environment for testing app.js logic in Node
-function setupMockEnv() {
-  const elements = {};
-  function getOrCreateElement(id) {
-    if (!elements[id]) {
-      elements[id] = {
-        id,
-        hidden: false,
-        textContent: '',
-        value: '',
-        disabled: false,
-        classList: {
-          add() {},
-          remove() {},
-          contains() { return false; },
-        },
-        showModal() { this.open = true; },
-        close() { this.open = false; },
-      };
-    }
-    return elements[id];
-  }
+const TOKEN = 'test-token';
 
-  const storage = new Map();
-  const mockSessionStorage = {
-    getItem(k) { return storage.get(k) || null; },
-    setItem(k, v) { storage.set(k, String(v)); },
-    removeItem(k) { storage.delete(k); },
-    clear() { storage.clear(); },
-  };
-
-  return {
-    elements,
-    getOrCreateElement,
-    mockSessionStorage,
-  };
+// Token plus fresh activity = a live session for bootstrapSession() to keep.
+function signedInStorage(token = TOKEN) {
+  return new Map([[TOKEN_KEY, token], ['reviewer_last_activity', String(Date.now())]]);
 }
 
 test('api() calls logout and throws on HTTP 401', async () => {
-  const env = setupMockEnv();
-  let logoutCalled = false;
-  let logoutMsg = '';
-
-  function logout(msg) {
-    logoutCalled = true;
-    logoutMsg = msg;
-    env.mockSessionStorage.removeItem('reviewer_token');
-  }
-
-  env.mockSessionStorage.setItem('reviewer_token', 'test-token');
-
-  async function api(path, options = {}) {
-    const res = await mockFetch(path, options);
-    if (res.status === 401) {
-      logout('Session expired or invalid token.');
-      throw new Error('unauthorized');
-    }
-    return res;
-  }
-
-  async function mockFetch() {
-    return {
-      status: 401,
-      ok: false,
-      json: async () => ({ error: 'unauthorized' }),
-    };
-  }
+  const env = await loadApp({
+    storage: signedInStorage(),
+    fetch: async () => jsonResponse({ error: 'unauthorized' }, 401),
+  });
+  env.store.set(TOKEN_KEY, TOKEN);
 
   await assert.rejects(
-    async () => { await api('/api/tickets/resolve'); },
+    async () => { await env.ctx.api('/api/tickets/resolve'); },
     { message: 'unauthorized' }
   );
 
-  assert.equal(logoutCalled, true);
-  assert.equal(logoutMsg, 'Session expired or invalid token.');
-  assert.equal(env.mockSessionStorage.getItem('reviewer_token'), null);
+  assert.equal(env.store.size, 0, 'token and every storage key cleared');
+  assert.match(env.doc.getElementById('login-error').textContent, /invalid token/i);
 });
 
 test('api() does NOT call logout on HTTP 503 Service Unavailable and returns response', async () => {
-  const env = setupMockEnv();
-  let logoutCalled = false;
+  const env = await loadApp({
+    storage: signedInStorage(),
+    fetch: async () => jsonResponse({
+      error: 'service_unavailable',
+      message: 'Authentication service is temporarily unavailable. Please try again later.',
+    }, 503),
+  });
 
-  function logout() {
-    logoutCalled = true;
-  }
-
-  env.mockSessionStorage.setItem('reviewer_token', 'test-token');
-
-  async function api(path, options = {}) {
-    const res = await mockFetch(path, options);
-    if (res.status === 401) {
-      logout('Session expired or invalid token.');
-      throw new Error('unauthorized');
-    }
-    return res;
-  }
-
-  async function mockFetch() {
-    return {
-      status: 503,
-      ok: false,
-      json: async () => ({
-        error: 'service_unavailable',
-        message: 'Authentication service is temporarily unavailable. Please try again later.',
-      }),
-    };
-  }
-
-  const res = await api('/api/tickets/resolve');
+  const res = await env.ctx.api('/api/tickets/resolve');
   assert.equal(res.status, 503);
   assert.equal(res.ok, false);
-  assert.equal(logoutCalled, false);
-  assert.equal(env.mockSessionStorage.getItem('reviewer_token'), 'test-token');
+  assert.equal(env.store.get(TOKEN_KEY), TOKEN);
 
   const data = await res.json();
   assert.equal(data.error, 'service_unavailable');
 });
 
 test('submitResolveTicket() catches 503 and surfaces in-app error without crashing or logging out', async () => {
-  const env = setupMockEnv();
-  let logoutCalled = false;
+  const env = await loadApp({
+    storage: signedInStorage(),
+    fetch: async () => jsonResponse({
+      error: 'service_unavailable',
+      message: 'Authentication service is temporarily unavailable. Please try again later.',
+    }, 503),
+  });
+  env.ctx.openResolveTicketDialog({ ticket_id: 'tkt-12345', customer_id: 'c1', created_at: new Date().toISOString() });
+  document.getElementById('resolve-ticket-note').value = 'Investigated customer issue';
 
-  const errorEl = env.getOrCreateElement('resolve-ticket-error');
-  const submitBtn = env.getOrCreateElement('resolve-ticket-submit');
-  const dialogEl = env.getOrCreateElement('resolve-ticket-dialog');
-  dialogEl.open = true;
+  await env.ctx.submitResolveTicket();
 
-  const targetTicket = { ticket_id: 'tkt-12345' };
-  const note = 'Investigated customer issue';
-
-  async function api() {
-    return {
-      status: 503,
-      ok: false,
-      json: async () => ({
-        error: 'service_unavailable',
-        message: 'Authentication service is temporarily unavailable. Please try again later.',
-      }),
-    };
-  }
-
-  // Execute the exact submitResolveTicket logic
-  try {
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Resolving...';
-
-    const res = await api('/api/tickets/resolve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticket_id: targetTicket.ticket_id, resolution_note: note }),
-    });
-
-    if (!res.ok) {
-      let msg = `Ticket resolution failed (HTTP ${res.status})`;
-      try {
-        const body = await res.json();
-        if (body.message) msg = body.message;
-        else if (body.error) msg = body.error;
-      } catch {}
-      errorEl.textContent = msg;
-      errorEl.hidden = false;
-    }
-  } catch (e) {
-    if (e.message === 'unauthorized') return;
-    errorEl.textContent = `Failed to resolve ticket: ${e.message}`;
-    errorEl.hidden = false;
-  } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Confirm Resolve';
-  }
-
-  // Assertions
-  assert.equal(logoutCalled, false);
-  assert.equal(dialogEl.open, true); // Dialog remains open for retry
-  assert.equal(submitBtn.disabled, false); // Button re-enabled
+  const errorEl = env.doc.getElementById('resolve-ticket-error');
+  const submitBtn = env.doc.getElementById('resolve-ticket-submit');
+  const dialogEl = env.doc.getElementById('resolve-ticket-dialog');
+  assert.equal(env.store.get(TOKEN_KEY), TOKEN);
+  assert.equal(dialogEl.open, true, 'Dialog remains open for retry');
+  assert.equal(submitBtn.disabled, false);
   assert.equal(submitBtn.textContent, 'Confirm Resolve');
   assert.equal(errorEl.textContent, 'Authentication service is temporarily unavailable. Please try again later.');
   assert.equal(errorEl.hidden, false);
 });
 
 test('submitResolveTicket() catches 401 gracefully without unhandled promise rejection crash', async () => {
-  const env = setupMockEnv();
-  let logoutCalled = false;
-  let unhandledCrash = false;
+  let armed = false;
+  const env = await loadApp({
+    storage: signedInStorage(),
+    fetch: async () => (armed ? jsonResponse({ error: 'unauthorized' }, 401) : jsonResponse([])),
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  env.ctx.openResolveTicketDialog({ ticket_id: 'tkt-123', customer_id: 'c1', created_at: new Date().toISOString() });
+  document.getElementById('resolve-ticket-note').value = 'Note';
+  armed = true;
 
-  const errorEl = env.getOrCreateElement('resolve-ticket-error');
-  const submitBtn = env.getOrCreateElement('resolve-ticket-submit');
+  // No unhandled rejection: the call resolves with the session signed out.
+  await env.ctx.submitResolveTicket();
 
-  function logout() {
-    logoutCalled = true;
-  }
-
-  async function api() {
-    logout('Session expired or invalid token.');
-    throw new Error('unauthorized');
-  }
-
-  try {
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Resolving...';
-
-    const res = await api('/api/tickets/resolve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticket_id: 'tkt-123', resolution_note: 'Note' }),
-    });
-
-    if (!res.ok) {
-      errorEl.textContent = 'Failed';
-    }
-  } catch (e) {
-    if (e.message === 'unauthorized') {
-      // Gracefully handled session expiration — no console crash
-      unhandledCrash = false;
-    } else {
-      unhandledCrash = true;
-    }
-  } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Confirm Resolve';
-  }
-
-  assert.equal(logoutCalled, true);
-  assert.equal(unhandledCrash, false);
+  assert.equal(env.store.size, 0);
+  const submitBtn = env.doc.getElementById('resolve-ticket-submit');
+  assert.equal(submitBtn.disabled, false);
+  assert.equal(submitBtn.textContent, 'Confirm Resolve');
 });
 
-test('formatBytes formats various file sizes correctly', () => {
-  function formatBytes(bytes) {
-    if (!bytes || bytes <= 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  }
+test('formatBytes formats various file sizes correctly', async () => {
+  const env = await loadApp();
+  const { formatBytes } = env.ctx;
 
   assert.equal(formatBytes(0), '0 B');
   assert.equal(formatBytes(500), '500 B');
@@ -248,65 +105,42 @@ test('formatBytes formats various file sizes correctly', () => {
 });
 
 test('retrieveUserDocs validates mandatory reason before calling API', async () => {
-  let apiCalled = false;
-  async function mockApi(path) {
-    apiCalled = true;
-    return { ok: true, json: async () => ({}) };
-  }
+  let apiCalls = 0;
+  const env = await loadApp({
+    storage: new Map([[TOKEN_KEY, TOKEN]]),
+    fetch: async () => { apiCalls += 1; return jsonResponse({}); },
+  });
 
-  async function retrieveUserDocs(user, reason) {
-    const cleanReason = (reason || '').trim();
-    if (!cleanReason) {
-      return { error: 'Reason is mandatory for retrieving KYC documents.' };
-    }
-    if (cleanReason.length > 1000) {
-      return { error: 'Reason cannot exceed 1000 characters.' };
-    }
-    return await mockApi(`/api/documents/user?user_id=${user.id}&reason=${cleanReason}`);
-  }
+  await env.ctx.retrieveUserDocs({ id: 'u1' }, '   ');
+  assert.equal(apiCalls, 0);
+  assert.match(env.doc.getElementById('user-docs-reason-error').textContent, /mandatory/i);
 
-  const resEmpty = await retrieveUserDocs({ id: 'u1' }, '   ');
-  assert.equal(resEmpty.error, 'Reason is mandatory for retrieving KYC documents.');
-  assert.equal(apiCalled, false);
+  await env.ctx.retrieveUserDocs({ id: 'u1' }, 'x'.repeat(1001));
+  assert.equal(apiCalls, 0);
+  assert.match(env.doc.getElementById('user-docs-reason-error').textContent, /1000/);
 
-  const resOversized = await retrieveUserDocs({ id: 'u1' }, 'x'.repeat(1001));
-  assert.equal(resOversized.error, 'Reason cannot exceed 1000 characters.');
-  assert.equal(apiCalled, false);
-
-  const resValid = await retrieveUserDocs({ id: 'u1' }, 'compliance audit');
-  assert.equal(apiCalled, true);
+  await env.ctx.retrieveUserDocs({ id: 'u1' }, 'compliance audit');
+  assert.equal(apiCalls, 1);
 });
 
 test('sendTicketAttachment attaches X-Reviewer-Token and sends multipart FormData', async () => {
   let sentHeaders = {};
   let sentUrl = '';
 
-  async function mockFetch(url, options) {
-    sentUrl = url;
-    sentHeaders = options.headers;
-    return {
-      ok: true,
-      json: async () => ({ status: 'success', attachment_url: 'https://test/attachment' }),
-    };
-  }
+  const env = await loadApp({
+    storage: signedInStorage('rev-tok-999'),
+    fetch: async (url, options) => {
+      sentUrl = url;
+      sentHeaders = options.headers;
+      if (url.startsWith('/api/queue')) return jsonResponse([]);
+      return jsonResponse({ status: 'success', attachment_url: 'https://test/attachment' });
+    },
+  });
 
-  async function sendTicketAttachment(ticketId, file, content, token) {
-    const formData = new Map();
-    formData.set('file', file);
-    if (content) formData.set('content', content);
-
-    const res = await mockFetch(`/api/tickets/attachment?ticket_id=${encodeURIComponent(ticketId)}`, {
-      method: 'POST',
-      headers: {
-        'X-Reviewer-Token': token,
-      },
-      body: formData,
-    });
-    return await res.json();
-  }
-
-  const res = await sendTicketAttachment('tkt-456', { name: 'photo.png' }, 'Screenshot', 'rev-tok-999');
+  const res = await env.ctx.sendTicketAttachment('tkt-456', new Blob(['x']), 'Screenshot');
   assert.equal(sentUrl, '/api/tickets/attachment?ticket_id=tkt-456');
   assert.equal(sentHeaders['X-Reviewer-Token'], 'rev-tok-999');
   assert.equal(res.status, 'success');
 });
+
+const TOKEN_KEY = 'reviewer_token';

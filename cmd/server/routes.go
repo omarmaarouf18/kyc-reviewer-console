@@ -77,12 +77,35 @@ func allowMethods(methods []string, h http.HandlerFunc) http.Handler {
 }
 
 // staticFiles is the complete set of UI assets served from webDir; anything
-// else under web/ (tests, the DOM shim) is never exposed.
+// else under web/ (tests, the DOM shim) is never exposed. Frontend code lives
+// in native ES modules under web/js/ (CONSOLE-V2 item 1): every module is
+// listed explicitly, no wildcard — files must NOT be served just because
+// they sit in web/js/.
 var staticFiles = map[string]string{
-	"/":           "index.html",
-	"/index.html": "index.html",
-	"/app.js":     "app.js",
-	"/style.css":  "style.css",
+	"/":                          "index.html",
+	"/index.html":                "index.html",
+	"/style.css":                 "style.css",
+	"/js/boot.js":                "js/boot.js",
+	"/js/main.js":                "js/main.js",
+	"/js/app.js":                 "js/app.js",
+	"/js/core/api.js":            "js/core/api.js",
+	"/js/core/dom.js":            "js/core/dom.js",
+	"/js/core/format.js":         "js/core/format.js",
+	"/js/core/i18n.js":           "js/core/i18n.js",
+	"/js/core/router.js":         "js/core/router.js",
+	"/js/core/session.js":        "js/core/session.js",
+	"/js/core/state.js":          "js/core/state.js",
+	"/js/core/ui/dialog.js":      "js/core/ui/dialog.js",
+	"/js/core/ui/search.js":      "js/core/ui/search.js",
+	"/js/core/ui/table.js":       "js/core/ui/table.js",
+	"/js/core/ui/toast.js":       "js/core/ui/toast.js",
+	"/js/pages/accounts.js":      "js/pages/accounts.js",
+	"/js/pages/disputes.js":      "js/pages/disputes.js",
+	"/js/pages/kyc.js":           "js/pages/kyc.js",
+	"/js/pages/kycdocs.js":       "js/pages/kycdocs.js",
+	"/js/pages/payouts.js":       "js/pages/payouts.js",
+	"/js/pages/subscriptions.js": "js/pages/subscriptions.js",
+	"/js/pages/tickets.js":       "js/pages/tickets.js",
 }
 
 func staticHandler(webDir string) http.Handler {

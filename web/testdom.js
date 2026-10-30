@@ -1,18 +1,24 @@
-// Minimal DOM for running the real web/app.js + web/index.html under
-// `node --test` (no npm dependencies). It implements only what app.js uses.
+// Minimal DOM for running the real web/js ES modules + web/index.html under
+// `node --test` (no npm dependencies). It implements only what the modules
+// use.
 //
 // innerHTML is parsed into real nodes, and every element the parser creates
 // is recorded in `parsedElements`, so a test can prove that API data never
 // became markup (e.g. no <img onerror> was created from a payload).
+//
+// Since CONSOLE-V2 item 1 the frontend is native ES modules under web/js/:
+// loadApp() installs the module globals (document, sessionStorage, a
+// location whose hash setter fires hashchange like a real browser) and
+// returns a context of the real functions. main.js is wired explicitly;
+// module state resets between tests via resetSessionState().
 
 'use strict';
 
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
 
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'wbr']);
-const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', larr: '←', rarr: '→', times: '×' };
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', larr: '←', rarr: '→', times: '×' };
 
 function decode(s) {
   return s.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (m, e) => {
@@ -274,9 +280,44 @@ class Document extends Element {
   get body() { return this.querySelector('body'); }
 }
 
-// loadApp parses index.html, runs app.js against it and returns the vm
-// context (top-level app.js functions are properties of it).
-function loadApp({ fetch, storage } = {}) {
+// Globals previously only the vm sandbox saw; modules read them off
+// globalThis at call time.
+function makeFakeLocation(winListeners) {
+  // Hash assignment fires hashchange like a real browser, so router logic
+  // behaves identically in tests.
+  const loc = {
+    _hash: '',
+    protocol: 'http:',
+    host: 'console.test',
+    get href() { return `http://console.test/${this._hash ? `#${this._hash}` : ''}`; },
+    set href(_) { /* no-op */ },
+    get hash() { return this._hash; },
+    set hash(v) {
+      this._hash = String(v);
+      for (const fn of winListeners.hashchange || []) fn({ type: 'hashchange' });
+    },
+  };
+  return loc;
+}
+
+class FakeWebSocket {
+  constructor(url, protocols) {
+    this.url = url;
+    this.protocols = protocols;
+    this.readyState = 0;
+    this.sent = [];
+  }
+  send(d) { this.sent.push(d); }
+  close() { this.readyState = 3; }
+}
+FakeWebSocket.OPEN = 1;
+
+const opened = [];
+
+// loadApp parses index.html, installs the module environment and wires the
+// real main.js against it, then resumes any existing session (page-load
+// semantics). Returns the DOM, storage and the real module namespace as ctx.
+async function loadApp({ fetch, storage } = {}) {
   const doc = new Document();
   const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
   parseInto(doc, html);
@@ -287,57 +328,91 @@ function loadApp({ fetch, storage } = {}) {
     getItem: (k) => (store.has(k) ? store.get(k) : null),
     setItem: (k, v) => store.set(k, String(v)),
     removeItem: (k) => store.delete(k),
-    clear: () => store.clear(),
+    clear()  { store.clear(); },
   };
 
-  const opened = [];
+  const winListeners = {};
   const sockets = [];
-  class FakeWebSocket {
-    constructor(url, protocols) {
-      this.url = url;
-      this.protocols = protocols;
-      this.readyState = 0;
-      this.sent = [];
+  const FakeWS = class extends FakeWebSocket {
+    constructor(...args) {
+      super(...args);
       sockets.push(this);
     }
-    send(d) { this.sent.push(d); }
-    close() { this.readyState = 3; }
-  }
-  FakeWebSocket.OPEN = 1;
+  };
 
-  const winListeners = {};
-  const sandbox = {
+  // URL with just enough shape (searchParams, createObjectURL) for the
+  // modules; tests can override globalThis.URL.createObjectURL to observe
+  // the blob type the document viewer forces to application/octet-stream.
+  const URLLike = Object.assign(function (u, b) {
+    const real = {};
+    real.searchParams = new URLSearchParams(String(u).split('?')[1] || '');
+    return real;
+  }, {
+    createObjectURL: (blob) => { opened.push(blob); return 'blob:http://console.test/fake'; },
+    revokeObjectURL: () => {},
+  });
+
+  const location = makeFakeLocation(winListeners);
+
+  installGlobals({
     document: doc,
     sessionStorage,
-    location: { href: 'http://console.test/', protocol: 'http:', host: 'console.test' },
+    location,
     fetch: fetch || (async () => ({ status: 200, ok: true, json: async () => ({}) })),
-    WebSocket: FakeWebSocket,
-    URL: Object.assign(function (u, b) { return new URL(u, b); }, {
-      createObjectURL: () => 'blob:http://console.test/fake',
-      revokeObjectURL: () => {},
-    }),
+    WebSocket: FakeWS,
+    URL: URLLike,
     URLSearchParams,
     Blob,
     FormData,
-    // Unref'd so app timers (blob revoke, idle sign-out) never hold the
-    // test process open.
-    setTimeout: (fn, ms) => { const t = setTimeout(fn, ms); t.unref(); return t; },
-    clearTimeout,
-    setInterval: (fn, ms) => { const t = setInterval(fn, ms); t.unref(); return t; },
-    clearInterval,
     console,
     alert: () => {},
     open: (...a) => { opened.push(a); return null; },
+    setTimeout: (fn, ms) => { const t = realTimers.setTimeout(fn, ms); if (t.unref) t.unref(); return t; },
+    clearTimeout: realTimers.clearTimeout,
+    setInterval: (fn, ms) => { const t = realTimers.setInterval(fn, ms); if (t.unref) t.unref(); return t; },
+    clearInterval: realTimers.clearInterval,
+  });
+
+  const winCbs = {
     addEventListener: (t, fn) => { (winListeners[t] ||= []).push(fn); },
     removeEventListener: (t, fn) => { winListeners[t] = (winListeners[t] || []).filter((f) => f !== fn); },
   };
-  sandbox.window = sandbox;
-  const ctx = vm.createContext(sandbox);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8'), ctx, { filename: 'app.js' });
-  return { ctx, doc, store, opened, sockets, winListeners };
+  const prevWindow = globalThis.window;
+  globalThis.window = new Proxy(globalThis, {
+    get(target, prop) {
+      if (prop === 'addEventListener') return winCbs.addEventListener;
+      if (prop === 'removeEventListener') return winCbs.removeEventListener;
+      if (prop === 'open') return globalThis.open;
+      if (prop === 'location') return location;
+      return target[prop];
+    },
+  });
+
+  const { resetSessionState } = await import('./js/core/state.js');
+  const session = await import('./js/core/session.js');
+  const app = await import('./js/app.js');
+  const main = await import('./js/main.js');
+  resetSessionState();
+  session.wireActivityListeners();
+  main.wireAll();
+  main.bootstrapSession();
+
+  return { doc, store, opened, sockets, winListeners, ctx: app, main, location, fakeURL: URLLike };
 }
 
-// jsonResponse builds the subset of a fetch Response that app.js reads.
+const realTimers = { setTimeout, clearTimeout, setInterval, clearInterval };
+
+// installRevert handles test isolation between loadApp calls.
+const defaults = new Map();
+function installGlobals(map) {
+  for (const [k, v] of Object.entries(map)) {
+    if (!defaults.has(k)) defaults.set(k, globalThis[k]);
+    globalThis[k] = v;
+  }
+  globalThis.window = globalThis.window; // overwritten per-load below
+}
+
+// jsonResponse builds the subset of a fetch Response that the modules read.
 function jsonResponse(body, status = 200) {
   return {
     status,
