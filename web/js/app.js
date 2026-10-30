@@ -12,6 +12,8 @@ export * from './pages/disputes.js';
 export * from './pages/subscriptions.js';
 export * from './pages/tickets.js';
 export * from './pages/payouts.js';
+export * from './pages/audit.js';
+export * from './pages/versions.js';
 
 export * from './core/dom.js';
 export * from './core/format.js';

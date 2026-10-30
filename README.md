@@ -9,7 +9,7 @@ Standalone internal web console for administrative operations on the Quick Deliv
 
 ## Why this shape (summary)
 
-The saas-core `api-gateway` strips `X-Internal-Token` from every inbound client request. All backend administrative endpoints (`auth-service`, `user-service`, `chat-service`) require BOTH `X-Internal-Token` (internal network context) and `X-Reviewer-Token` (individual reviewer credential).
+The saas-core `api-gateway` strips `X-Internal-Token` from every inbound client request. All backend administrative endpoints (`auth-service`, `user-service`, `chat-service`, `notification-service`, `api-gateway`) require BOTH `X-Internal-Token` (internal network context) and `X-Reviewer-Token` (individual reviewer credential).
 
 No external consumer application can reach administrative endpoints directly — by design. This console is a thin Go proxy service deployed **inside** the internal private network (`saas-net`): it injects the internal service token server-side, serves a vanilla browser UI, and proxies administrative requests to internal services without exposing secrets. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full end-to-end flow.
 
@@ -19,7 +19,7 @@ No external consumer application can reach administrative endpoints directly —
 - **No Self-Service Admin Accounts**: Reviewer accounts are created exclusively via manual server-side CLI operations (`cmd/onboard-reviewer`). There is no public registration or self-service signup.
 - **Single Permission Level**: All authenticated reviewers have uniform access across all console pages (Overview + 6 modules; no complex nested RBAC or sub-role splits).
 - **Tab-Scoped Session**: The reviewer token is held in browser `sessionStorage` (closing the tab signs out), with a 30-minute idle sign-out (see [Security](#security)).
-- **Mandatory Reasons**: All destructive and override mutations (KYC rejections, account suspensions, dispute overrides, subscription revocations, ticket resolutions, payout rejections) strictly enforce mandatory reasons (1–1000 characters) both in the UI and server-side.
+- **Mandatory Reasons**: All destructive and override mutations (KYC rejections, account suspensions, dispute overrides, subscription revocations, ticket resolutions, payout rejections, app version policy updates) strictly enforce mandatory reasons (1–1000 characters) both in the UI and server-side.
 
 ## Security
 
@@ -47,6 +47,8 @@ export INTERNAL_SERVICE_TOKEN=<internal token>   # required, fail-fast if empty
 export AUTH_SERVICE_URL=http://localhost:3002    # default: https://auth-service:3002
 export USER_SERVICE_URL=http://localhost:3003    # default: https://user-service:3003
 export CHAT_SERVICE_URL=http://localhost:3001    # default: https://chat-service:3001
+export NOTIFICATION_SERVICE_URL=http://localhost:3004  # default: https://notification-service:3004
+export GATEWAY_INTERNAL_URL=http://localhost:8080      # default: https://api-gateway:8080
 export PORT=8090                                 # default
 
 go run ./cmd/server
@@ -65,6 +67,8 @@ docker run --rm -p 8090:8090 \
   -e AUTH_SERVICE_URL=https://auth-service:3002 \
   -e USER_SERVICE_URL=https://user-service:3003 \
   -e CHAT_SERVICE_URL=https://chat-service:3001 \
+  -e NOTIFICATION_SERVICE_URL=https://notification-service:3004 \
+  -e GATEWAY_INTERNAL_URL=https://api-gateway:8080 \
   kyc-reviewer-console
 ```
 
@@ -116,6 +120,14 @@ Deploy the container on the same compose network (`saas-net`) so downstream serv
    - Review pending courier and business owner payout requests.
    - Status filtering (`pending`, `completed`, `rejected`) and pagination.
    - Payout rejection with mandatory reason (1–1000 chars), proxying to `user-service` (`POST /admin/payouts/reject`) to perform atomic Compare-and-Swap (CAS) state transition from `pending` to `rejected` and automatically restore the user's withdrawable wallet balance (authorized via commit `f5b7b6a`).
+9. **Audit Log Viewer** (`/api/audit` → auth-service `GET /admin/audit`):
+   - One merged, newest-first view of every service's `admin_audit` records (auth, user, chat, notification, gateway).
+   - Filters by reviewer (`actor_id`), action, target id and date range; every field is rendered as text.
+   - The per-source status strip shows which source answered (`ok`) and which is `unavailable`, so a partial log is never mistaken for a complete one.
+10. **App Version Policy** (`/api/version` → api-gateway `GET|PUT /admin/version`):
+   - Shows the latest release, the minimum supported version, the enforcement flag, the store download URL and the policy revision.
+   - Update the policy with a mandatory reason (1–1000 chars); the proxy validates the reason locally and forwards the policy fields untouched.
+   - The gateway is reached over `GATEWAY_INTERNAL_URL` with the console's internal-CA client certificate (it answers 403 otherwise).
 
 ## CI/CD
 

@@ -18,10 +18,18 @@ type Config struct {
 	AuthServiceURL       string
 	UserServiceURL       string
 	ChatServiceURL       string
-	TLSCertPath          string
-	TLSKeyPath           string
-	TLSCAPath            string
-	AppEnv               string
+	// NotificationServiceURL reaches notification-service's reviewer endpoints
+	// (the admin notifications page, ADMIN_API § 12).
+	NotificationServiceURL string
+	// GatewayInternalURL reaches the api-gateway's own reviewer endpoints
+	// (GET/PUT /admin/version). The gateway only answers them on the internal
+	// network and only with an internal-CA client certificate, which the
+	// console's TLS client presents.
+	GatewayInternalURL string
+	TLSCertPath        string
+	TLSKeyPath         string
+	TLSCAPath          string
+	AppEnv             string
 }
 
 func Load() (*Config, error) {
@@ -51,20 +59,32 @@ func Load() (*Config, error) {
 		chatServiceURL = "https://chat-service:3001"
 	}
 
+	notificationServiceURL := os.Getenv("NOTIFICATION_SERVICE_URL")
+	if notificationServiceURL == "" {
+		notificationServiceURL = "https://notification-service:3004"
+	}
+
+	gatewayInternalURL := os.Getenv("GATEWAY_INTERNAL_URL")
+	if gatewayInternalURL == "" {
+		gatewayInternalURL = "https://api-gateway:8080"
+	}
+
 	appEnv := os.Getenv("APP_ENV")
 	if appEnv == "" {
 		appEnv = "production"
 	}
 
 	return &Config{
-		Port:                 port,
-		InternalServiceToken: internalServiceToken,
-		AuthServiceURL:       authServiceURL,
-		UserServiceURL:       userServiceURL,
-		ChatServiceURL:       chatServiceURL,
-		TLSCertPath:          os.Getenv("TLS_CERT_PATH"),
-		TLSKeyPath:           os.Getenv("TLS_KEY_PATH"),
-		TLSCAPath:            os.Getenv("TLS_CA_PATH"),
-		AppEnv:               appEnv,
+		Port:                   port,
+		InternalServiceToken:   internalServiceToken,
+		AuthServiceURL:         authServiceURL,
+		UserServiceURL:         userServiceURL,
+		ChatServiceURL:         chatServiceURL,
+		NotificationServiceURL: notificationServiceURL,
+		GatewayInternalURL:     gatewayInternalURL,
+		TLSCertPath:            os.Getenv("TLS_CERT_PATH"),
+		TLSKeyPath:             os.Getenv("TLS_KEY_PATH"),
+		TLSCAPath:              os.Getenv("TLS_CA_PATH"),
+		AppEnv:                 appEnv,
 	}, nil
 }

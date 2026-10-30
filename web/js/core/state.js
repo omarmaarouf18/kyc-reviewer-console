@@ -83,6 +83,19 @@ const payoutsState = {
   rows: [],
 };
 
+// The merged audit log (ADMIN_API § 10).
+const auditState = {
+  page: 1,
+  limit: 20,
+  actor: '',
+  action: '',
+  target: '',
+  from: '',
+  to: '',
+  total: 0,
+  rows: [],
+};
+
 const claimsState = {
   page: 1,
   limit: 15,
@@ -118,6 +131,7 @@ const state = {
   subscriptionsQueueState,
   ticketsState,
   payoutsState,
+  auditState,
   claimsState,
   // Overview counters (refreshed by the shell)
   overview: null,
@@ -157,6 +171,7 @@ export function resetSessionState() {
   Object.assign(subscriptionsQueueState, { page: 1, total: 0, rows: [] });
   Object.assign(ticketsState, { page: 1, search: '', status: '', total: 0, rows: [] });
   Object.assign(payoutsState, { page: 1, status: '', total: 0, rows: [] });
+  Object.assign(auditState, { page: 1, actor: '', action: '', target: '', from: '', to: '', total: 0, rows: [] });
   Object.assign(claimsState, { page: 1, total: 0 });
   state.overview = null;
   state.booted = false;

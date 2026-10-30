@@ -35,11 +35,13 @@ const (
 )
 
 type ReviewerProxy struct {
-	internalServiceToken string
-	authServiceURL       string
-	userServiceURL       string
-	chatServiceURL       string
-	client               *http.Client
+	internalServiceToken   string
+	authServiceURL         string
+	userServiceURL         string
+	chatServiceURL         string
+	notificationServiceURL string
+	gatewayInternalURL     string
+	client                 *http.Client
 }
 
 func New(internalServiceToken, authServiceURL string, client *http.Client) *ReviewerProxy {
@@ -51,6 +53,15 @@ func NewWithUserService(internalServiceToken, authServiceURL, userServiceURL str
 }
 
 func NewWithServices(internalServiceToken, authServiceURL, userServiceURL, chatServiceURL string, client *http.Client) *ReviewerProxy {
+	return NewWithAllServices(internalServiceToken, authServiceURL, userServiceURL, chatServiceURL, "", "", client)
+}
+
+// NewWithAllServices builds a proxy for every service the console talks to.
+// notificationServiceURL serves the admin notifications endpoints;
+// gatewayInternalURL reaches the api-gateway's own reviewer endpoints
+// (/admin/version), which only answer on the internal network and only with
+// an internal-CA client certificate (the console's TLS client presents it).
+func NewWithAllServices(internalServiceToken, authServiceURL, userServiceURL, chatServiceURL, notificationServiceURL, gatewayInternalURL string, client *http.Client) *ReviewerProxy {
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
@@ -60,12 +71,20 @@ func NewWithServices(internalServiceToken, authServiceURL, userServiceURL, chatS
 	if chatServiceURL == "" {
 		chatServiceURL = "https://chat-service:3001"
 	}
+	if notificationServiceURL == "" {
+		notificationServiceURL = "https://notification-service:3004"
+	}
+	if gatewayInternalURL == "" {
+		gatewayInternalURL = "https://api-gateway:8080"
+	}
 	return &ReviewerProxy{
-		internalServiceToken: internalServiceToken,
-		authServiceURL:       strings.TrimSuffix(authServiceURL, "/"),
-		userServiceURL:       strings.TrimSuffix(userServiceURL, "/"),
-		chatServiceURL:       strings.TrimSuffix(chatServiceURL, "/"),
-		client:               client,
+		internalServiceToken:   internalServiceToken,
+		authServiceURL:         strings.TrimSuffix(authServiceURL, "/"),
+		userServiceURL:         strings.TrimSuffix(userServiceURL, "/"),
+		chatServiceURL:         strings.TrimSuffix(chatServiceURL, "/"),
+		notificationServiceURL: strings.TrimSuffix(notificationServiceURL, "/"),
+		gatewayInternalURL:     strings.TrimSuffix(gatewayInternalURL, "/"),
+		client:                 client,
 	}
 }
 
@@ -580,6 +599,71 @@ func (p *ReviewerProxy) RemoveServicePhoto(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	p.proxyServiceAction(w, r, "photo/remove")
+}
+
+// Audit proxies GET /admin/audit to auth-service: the merged audit viewer
+// (every service's admin_audit records, newest first). A source that is
+// unavailable is reported by auth-service as "unavailable"; the response stays
+// 200 with the other sources' records.
+func (p *ReviewerProxy) Audit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"use GET"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	upstreamPath := "/admin/audit"
+	if r.URL.RawQuery != "" {
+		upstreamPath += "?" + r.URL.RawQuery
+	}
+	p.forwardToService(w, r, p.authServiceURL, upstreamPath)
+}
+
+// Version proxies GET/PUT /admin/version to the api-gateway over the
+// internal network (GATEWAY_INTERNAL_URL). The gateway answers 403 unless
+// the TLS connection presented the internal-CA client certificate, which the
+// console's client does.
+func (p *ReviewerProxy) Version(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		p.forwardToService(w, r, p.gatewayInternalURL, "/admin/version")
+	case http.MethodPut:
+		body, ok := validateVersionUpdate(w, r)
+		if !ok {
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		p.forwardToService(w, r, p.gatewayInternalURL, "/admin/version")
+	default:
+		http.Error(w, `{"error":"use GET or PUT"}`, http.StatusMethodNotAllowed)
+	}
+}
+
+type versionUpdateRequest struct {
+	Reason string `json:"reason"`
+}
+
+// validateVersionUpdate enforces the gateway's contract (a reason of 1-1000
+// characters) and returns the untouched body so the other policy fields reach
+// the gateway unchanged.
+func validateVersionUpdate(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONBody))
+	if err != nil {
+		http.Error(w, `{"error":"failed to read request body"}`, http.StatusBadRequest)
+		return nil, false
+	}
+	var req versionUpdateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+		return nil, false
+	}
+	if strings.TrimSpace(req.Reason) == "" {
+		http.Error(w, `{"error":"reason is required (1-1000 characters)"}`, http.StatusBadRequest)
+		return nil, false
+	}
+	if len(req.Reason) > 1000 {
+		http.Error(w, `{"error":"reason cannot exceed 1000 characters"}`, http.StatusBadRequest)
+		return nil, false
+	}
+	return body, true
 }
 
 // Jobs proxies GET /admin/jobs to user-service (job search across tenants).

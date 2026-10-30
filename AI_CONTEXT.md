@@ -23,21 +23,44 @@ ADR-0022, and ADR-0023, expanded to 6 tabs per commit `f5b7b6a`.
 ## What Exists Today
 
 - `internal/config` — env config (`INTERNAL_SERVICE_TOKEN`, `AUTH_SERVICE_URL`,
-  `USER_SERVICE_URL`, `CHAT_SERVICE_URL`, `PORT`) with empty-secret fail-fast guard.
-- `internal/proxy` — proxy handlers for all 6 operational modules:
+  `USER_SERVICE_URL`, `CHAT_SERVICE_URL`, `NOTIFICATION_SERVICE_URL`,
+  `GATEWAY_INTERNAL_URL`, `PORT`) with empty-secret fail-fast guard.
+- `internal/proxy` — proxy handlers for all 8 operational modules:
   1. KYC Queue & Review (`/api/queue`, `/api/review`, `/api/documents/view`)
   2. Accounts Directory & Suspensions (`/api/accounts`, `/api/accounts/suspend`, `/api/accounts/reactivate`)
   3. Disputes & Escrow Reconciliation (`/api/reconciliation/queue`, `/api/reconciliation/resolve`)
   4. Subscriptions Management (`/api/subscriptions`, `/api/subscriptions/activate`, `/api/subscriptions/revoke`)
   5. Support Tickets (`/api/tickets`, `/api/tickets/resolve`, `/api/tickets/accept`, `/api/tickets/history`, `/api/chat/ws`)
   6. Payout Requests (`/api/payouts`, `/api/payouts/reject`): proxying to `user-service` (`/admin/payouts`, `/admin/payouts/reject`), with mandatory rejection reason (1–1000 chars) and wallet balance restoration.
+  7. Audit Log (`/api/audit`): proxying to `auth-service` (`GET /admin/audit`, the merged fan-out of every service's `admin_audit` records with a per-source `ok`/`unavailable` map).
+  8. App Version Policy (`/api/version`): proxying to the `api-gateway` over `GATEWAY_INTERNAL_URL` (`GET|PUT /admin/version`); the reason is validated locally (1-1000 chars) and the policy fields are forwarded untouched. The gateway only answers on the internal network and only with the internal-CA client certificate.
   All destructive and override operations enforce local input validation (mandatory reasons, 1–1000 characters) before forwarding to upstream services.
 - `cmd/server` — HTTP server with timeouts, CR/LF-sanitized logging, static UI serving, and route registration for all `/api/*` endpoints.
-- `web/` — vanilla UI as native ES modules under `web/js/` (`web/index.html` wiring `web/js/boot.js`; `web/js/core/` incl. `theme.js` (light/dark, `console_theme`) and `i18n.js` (Arabic default/RTL, English, `console_lang`; header toggles); bundled IBM Plex Sans Arabic woff2 in `web/fonts/`; `web/style.css` is token-based (navy #0D1321, gold #FFC107; light/dark via `html[data-theme]`); no build step; `web/js/pages/overview.js` renders `GET /api/overview` counters, the landing page of the console; `web/js/pages/kyc.js` is the queue list + review side panel with keyboard shortcuts (arrows/j/k, Enter, a, r, Esc, ?); `web/js/pages/accounts.js` is the accounts list + account drawer; `web/js/pages/jobs.js` is the jobs search + detail dialog with cancel / complete-stuck-COD (`/api/jobs/{id}`); `web/js/pages/services.js` is the marketplace moderation list with hide / unhide / photo-removal actions; `web/js/pages/subscriptions.js` is queue-first (upgrade queue default, all subscriptions second view; activation posts `{tenant_id, subscription_id, duration_days}`); `web/js/pages/disputes.js`, `tickets.js` and `payouts.js` share the console UI kit (core/ui/table.js, core/ui/dialog.js, core/ui/toast.js) with AR/EN strings; `web/js/core/cod-banner.js` renders the shell-level stuck-COD banner (overview `stuck_cod_jobs`); `core/i18n.js` flattens nested translation groups into dotted keys) with tab-scoped session auth, search toolbars, status filters, pagination controls, dynamic badge counters, and action dialog modals.
+- `web/` — vanilla UI as native ES modules under `web/js/` (`web/index.html` wiring `web/js/boot.js`; `web/js/core/` incl. `theme.js` (light/dark, `console_theme`) and `i18n.js` (Arabic default/RTL, English, `console_lang`; header toggles); bundled IBM Plex Sans Arabic woff2 in `web/fonts/`; `web/style.css` is token-based (navy #0D1321, gold #FFC107; light/dark via `html[data-theme]`); no build step; `web/js/pages/overview.js` renders `GET /api/overview` counters, the landing page of the console; `web/js/pages/kyc.js` is the queue list + review side panel with keyboard shortcuts (arrows/j/k, Enter, a, r, Esc, ?); `web/js/pages/accounts.js` is the accounts list + account drawer; `web/js/pages/jobs.js` is the jobs search + detail dialog with cancel / complete-stuck-COD (`/api/jobs/{id}`); `web/js/pages/services.js` is the marketplace moderation list with hide / unhide / photo-removal actions; `web/js/pages/subscriptions.js` is queue-first (upgrade queue default, all subscriptions second view; activation posts `{tenant_id, subscription_id, duration_days}`); `web/js/pages/disputes.js`, `tickets.js` and `payouts.js` share the console UI kit (core/ui/table.js, core/ui/dialog.js, core/ui/toast.js) with AR/EN strings; `web/js/core/cod-banner.js` renders the shell-level stuck-COD banner (overview `stuck_cod_jobs`); `web/js/pages/audit.js` is the merged audit viewer (filters by actor/action/target/date plus the per-source status strip); `web/js/pages/versions.js` shows the app version policy card and its update dialog (`PUT /api/version`, mandatory reason); `core/i18n.js` flattens nested translation groups into dotted keys) with tab-scoped session auth, search toolbars, status filters, pagination controls, dynamic badge counters, and action dialog modals.
 - CI: `.github/workflows/ci.yml` (gofmt, build, vet, test, web tests, gosec);
   `.github/workflows/contract-sync.yml` responding to saas-core's `reviewer-api-contract` repository_dispatch.
 
 ## Recent Changes
+
+### CONSOLE-V2 item 10: audit viewer and app version policy
+
+- **Audit viewer**: `GET /api/audit` proxies `auth-service`'s `GET /admin/audit`
+  (the merged fan-out over every service's own `admin_audit` collection). The
+  page filters by `actor_id`, `action`, `target_id`, `from` and `to`, renders
+  every field as text, and shows a per-source status strip (`ok` /
+  `unavailable`) so a partial log is never mistaken for a complete one.
+- **Version policy**: `GET /api/version` / `PUT /api/version` proxy the
+  `api-gateway`'s `GET|PUT /admin/version` over `GATEWAY_INTERNAL_URL` — the
+  gateway answers only on the internal network and only with the internal-CA
+  client certificate (the console's TLS client presents it; without it the
+  gateway returns 403). The update needs a mandatory reason (validated in the
+  proxy, 1-1000 chars); the policy fields are forwarded untouched.
+- **Config**: `NOTIFICATION_SERVICE_URL` (default
+  `https://notification-service:3004`) and `GATEWAY_INTERNAL_URL` (default
+  `https://api-gateway:8080`); `proxy.NewWithAllServices` wires them.
+- **Tests**: `web/audit_test.js` (7 tests), `internal/proxy/proxy_test.go`
+  (audit forwarding + query, version GET/PUT + reason validation + untouched
+  body), `cmd/server/routes_test.go` (route -> upstream path).
 
 ### CONSOLE-SEC: stored-XSS fix and console hardening
 

@@ -64,6 +64,12 @@
         <button id="tab-payouts-btn" class="nav-item" type="button">
           <span data-i18n="nav.payouts">طلبات الصرف</span><span id="payouts-badge" class="pill">0</span>
         </button>
+        <button id="tab-audit-btn" class="nav-item" type="button">
+          <span data-i18n="nav.audit">سجل التدقيق</span>
+        </button>
+        <button id="tab-versions-btn" class="nav-item" type="button">
+          <span data-i18n="nav.versions">إصدارات التطبيق</span>
+        </button>
       </nav>
 
       <main id="console-main">
@@ -618,6 +624,69 @@
       </menu>
     </dialog>
 
+    <!-- Audit log viewer (ADMIN_API § 10) -->
+    <section id="audit-section" hidden>
+      <header>
+        <h2 data-i18n="audit.title">سجل التدقيق</h2>
+        <button id="refresh-audit-btn" type="button" data-i18n="audit.refresh">تحديث</button>
+      </header>
+
+      <form id="audit-filter-form" class="toolbar">
+        <input type="text" id="audit-actor-input" placeholder="Reviewer ID" autocomplete="off" />
+        <input type="text" id="audit-action-input" placeholder="Action (job.cancel)" autocomplete="off" />
+        <input type="text" id="audit-target-input" placeholder="Target ID" autocomplete="off" />
+        <input type="date" id="audit-from-input" />
+        <input type="date" id="audit-to-input" />
+        <button type="submit" data-i18n="audit.filter">بحث</button>
+        <button type="button" id="audit-reset-btn" class="secondary" data-i18n="audit.reset">مسح</button>
+      </form>
+
+      <p id="audit-error" class="error banner" hidden></p>
+
+      <div id="audit-sources" class="source-strip"></div>
+
+      <table id="audit-table">
+        <thead>
+          <tr>
+            <th data-i18n="audit.col.time">الوقت</th>
+            <th data-i18n="audit.col.source">المصدر</th>
+            <th data-i18n="audit.col.actor">المراجع</th>
+            <th data-i18n="audit.col.action">الإجراء</th>
+            <th data-i18n="audit.col.target">الهدف</th>
+            <th data-i18n="audit.col.reason">السبب</th>
+            <th data-i18n="audit.col.details">التفاصيل</th>
+            <th data-i18n="audit.col.request">معرّف الطلب</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="pagination-bar">
+        <span id="audit-count" class="muted"></span>
+        <div class="pagination-controls">
+          <button id="audit-prev-btn" type="button" class="secondary" disabled>&larr; Prev</button>
+          <span id="audit-page-info">Page 1</span>
+          <button id="audit-next-btn" type="button" class="secondary" disabled>Next &rarr;</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- App version policy (ADMIN_API § 11) -->
+    <section id="versions-section" hidden>
+      <header>
+        <h2 data-i18n="versions.title">إصدارات التطبيق</h2>
+        <button id="refresh-versions-btn" type="button" data-i18n="versions.refresh">تحديث</button>
+      </header>
+
+      <p id="versions-error" class="error banner" hidden></p>
+
+      <div id="versions-card" class="version-card"></div>
+
+      <menu class="page-actions">
+        <button id="versions-update-btn" type="button" data-i18n="versions.update">تحديث سياسة الإصدارات</button>
+      </menu>
+    </section>
+
     <!-- Dialog: Resolve Reconciliation Dispute (ADR-0023) -->
     <dialog id="resolve-dispute-dialog">
       <h2 data-i18n="disputes.resolve.title">حل النزاع</h2>
@@ -668,6 +737,27 @@
       <menu>
         <button id="revoke-sub-cancel" type="button" class="secondary" data-i18n="subscriptions.revoke.close">Cancel</button>
         <button id="revoke-sub-submit" type="button" class="danger" data-i18n="subscriptions.revoke.submit">Revoke Plan</button>
+      </menu>
+    </dialog>
+
+    <!-- Dialog: Update the app version policy (ADMIN_API § 11) -->
+    <dialog id="version-update-dialog">
+      <h2 data-i18n="versions.dialog.title">تحديث سياسة الإصدارات</h2>
+      <p id="version-update-target" class="muted"></p>
+      <label for="version-latest-input" data-i18n="versions.dialog.latest">أحدث إصدار</label>
+      <input type="text" id="version-latest-input" autocomplete="off" />
+      <label for="version-minimum-input" data-i18n="versions.dialog.minimum">أقل إصدار مدعوم</label>
+      <input type="text" id="version-minimum-input" autocomplete="off" />
+      <label for="version-download-input" data-i18n="versions.dialog.download">رابط المتجر</label>
+      <input type="text" id="version-download-input" autocomplete="off" />
+      <label class="checkbox-label"><input type="checkbox" id="version-enforce-input" /> <span data-i18n="versions.dialog.enforce">إلزام الحد الأدنى</span></label>
+      <label for="version-reason-input"><span data-i18n="versions.dialog.reason">سبب التحديث</span> <span class="required">*</span></label>
+      <textarea id="version-reason-input" maxlength="1000" rows="3" required
+        placeholder="Why is the version policy changed?"></textarea>
+      <p id="version-update-error" class="error" hidden></p>
+      <menu>
+        <button id="version-update-cancel" type="button" class="secondary" data-i18n="versions.dialog.close">Cancel</button>
+        <button id="version-update-submit" type="button" data-i18n="versions.dialog.submit">Save policy</button>
       </menu>
     </dialog>
 

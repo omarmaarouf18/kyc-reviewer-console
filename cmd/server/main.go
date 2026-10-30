@@ -50,7 +50,15 @@ func main() {
 		}
 	}
 
-	p := proxy.NewWithServices(cfg.InternalServiceToken, cfg.AuthServiceURL, cfg.UserServiceURL, cfg.ChatServiceURL, client)
+	p := proxy.NewWithAllServices(
+		cfg.InternalServiceToken,
+		cfg.AuthServiceURL,
+		cfg.UserServiceURL,
+		cfg.ChatServiceURL,
+		cfg.NotificationServiceURL,
+		cfg.GatewayInternalURL,
+		client,
+	)
 
 	addr := ":" + cfg.Port
 	srv := &http.Server{

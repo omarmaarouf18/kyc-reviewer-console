@@ -314,6 +314,56 @@ body {
   gap: 0.5rem;
 }
 
+/* ---- Audit viewer ---------------------------------------------------------- */
+
+.source-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+/* ---- Version policy -------------------------------------------------------- */
+
+.version-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.version-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 0.75rem;
+}
+
+.version-cell {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.version-cell-wide { grid-column: 1 / -1; }
+
+.page-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0;
+  margin: 1rem 0 0;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
 /* ---- Account drawer (overlay) ---------------------------------------------- */
 
 .drawer-backdrop {

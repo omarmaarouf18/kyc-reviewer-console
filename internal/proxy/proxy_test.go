@@ -314,6 +314,144 @@ func TestReactivate_ValidPayloadForwarded(t *testing.T) {
 	}
 }
 
+func TestAudit_ForwardsToAuthServiceWithQuery(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`{"entries":[{"id":"a1","source":"user-service","action":"job.cancel"}],"total":1,"page":1,"limit":20,"sources":{"auth-service":"ok"}}`)}
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	p := New("secret-internal-token", upstream.URL, upstream.Client())
+	t.Cleanup(upstream.Close)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/audit?action=job.cancel&page=1&limit=20", nil)
+	req.Header.Set("X-Reviewer-Token", "reviewer-tok-abc")
+	rec := httptest.NewRecorder()
+	p.Audit(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if stub.gotPath != "/admin/audit" {
+		t.Errorf("unexpected upstream path: %q", stub.gotPath)
+	}
+	if stub.gotRawQuery != "action=job.cancel&page=1&limit=20" {
+		t.Errorf("query not forwarded: %q", stub.gotRawQuery)
+	}
+	if stub.gotInternal != "secret-internal-token" || stub.gotReviewer != "reviewer-tok-abc" {
+		t.Errorf("tokens not forwarded correctly: internal=%q reviewer=%q", stub.gotInternal, stub.gotReviewer)
+	}
+}
+
+func TestAudit_RejectsNonGET(t *testing.T) {
+	stub := &upstreamStub{t: t, statusCode: http.StatusOK}
+	upstream := httptest.NewServer(http.HandlerFunc(stub.handler))
+	p := New("secret-internal-token", upstream.URL, upstream.Client())
+	t.Cleanup(upstream.Close)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/audit", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	p.Audit(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST /api/audit = %d, want 405", rec.Code)
+	}
+	if stub.gotPath != "" {
+		t.Errorf("the upstream must not be reached: %q", stub.gotPath)
+	}
+}
+
+func TestVersion_GetReachesTheGatewayOverTheInternalURL(t *testing.T) {
+	gateway := &upstreamStub{t: t, statusCode: http.StatusOK,
+		responseBytes: []byte(`{"id":"global","latest_version":"1.5.2","minimum_supported_version":"1.4.0"}`)}
+	auth := &upstreamStub{t: t, statusCode: http.StatusOK}
+	authServer := httptest.NewServer(http.HandlerFunc(auth.handler))
+	gatewayServer := httptest.NewServer(http.HandlerFunc(gateway.handler))
+	t.Cleanup(authServer.Close)
+	t.Cleanup(gatewayServer.Close)
+
+	p := NewWithAllServices("secret-internal-token", authServer.URL, authServer.URL, authServer.URL, authServer.URL, gatewayServer.URL, authServer.Client())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
+	req.Header.Set("X-Reviewer-Token", "reviewer-tok-abc")
+	rec := httptest.NewRecorder()
+	p.Version(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if gateway.gotPath != "/admin/version" {
+		t.Errorf("unexpected gateway path: %q", gateway.gotPath)
+	}
+	if gateway.gotInternal != "secret-internal-token" || gateway.gotReviewer != "reviewer-tok-abc" {
+		t.Errorf("tokens not forwarded to the gateway: internal=%q reviewer=%q", gateway.gotInternal, gateway.gotReviewer)
+	}
+	if auth.gotPath != "" {
+		t.Errorf("the version call must not hit auth-service: %q", auth.gotPath)
+	}
+}
+
+func TestVersion_UpdateValidatesTheReasonBeforeTheGateway(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"missing reason", `{"latest_version":"1.5.2"}`, "reason is required"},
+		{"blank reason", `{"reason":"   "}`, "reason is required"},
+		{"oversized reason", `{"reason":"` + strings.Repeat("x", 1001) + `"}`, "1000 characters"},
+		{"invalid json", `not-json`, "invalid JSON body"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gateway := &upstreamStub{t: t, statusCode: http.StatusOK}
+			gatewayServer := httptest.NewServer(http.HandlerFunc(gateway.handler))
+			t.Cleanup(gatewayServer.Close)
+			p := NewWithAllServices("secret-internal-token", gatewayServer.URL, gatewayServer.URL, gatewayServer.URL, gatewayServer.URL, gatewayServer.URL, gatewayServer.Client())
+
+			req := httptest.NewRequest(http.MethodPut, "/api/version", strings.NewReader(tc.body))
+			req.Header.Set("X-Reviewer-Token", "tok")
+			rec := httptest.NewRecorder()
+			p.Version(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("PUT /api/version = %d, want 400", rec.Code)
+			}
+			if !strings.Contains(rec.Body.String(), tc.want) {
+				t.Errorf("body %q missing %q", rec.Body.String(), tc.want)
+			}
+			if gateway.gotPath != "" {
+				t.Errorf("an invalid update must not reach the gateway (saw %q)", gateway.gotPath)
+			}
+		})
+	}
+}
+
+func TestVersion_UpdateForwardsEveryPolicyField(t *testing.T) {
+	gateway := &upstreamStub{t: t, statusCode: http.StatusOK, responseBytes: []byte(`{"message":"version configuration updated successfully"}`)}
+	gatewayServer := httptest.NewServer(http.HandlerFunc(gateway.handler))
+	t.Cleanup(gatewayServer.Close)
+	p := NewWithAllServices("secret-internal-token", gatewayServer.URL, gatewayServer.URL, gatewayServer.URL, gatewayServer.URL, gatewayServer.URL, gatewayServer.Client())
+
+	body := `{"minimum_supported_version":"1.5.0","latest_version":"1.5.2","download_url":"https://play.google.com/store/apps/details?id=tech.logiclinkeg.app","reason":"Deprecating API v1 endpoints"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/version", strings.NewReader(body))
+	req.Header.Set("X-Reviewer-Token", "tok")
+	rec := httptest.NewRecorder()
+	p.Version(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if gateway.gotPath != "/admin/version" {
+		t.Errorf("unexpected gateway path: %q", gateway.gotPath)
+	}
+	if gateway.gotBody["reason"] != "Deprecating API v1 endpoints" {
+		t.Errorf("reason not forwarded: %+v", gateway.gotBody)
+	}
+	if gateway.gotBody["latest_version"] != "1.5.2" || gateway.gotBody["minimum_supported_version"] != "1.5.0" {
+		t.Errorf("policy fields not forwarded: %+v", gateway.gotBody)
+	}
+	if gateway.gotBody["download_url"] != "https://play.google.com/store/apps/details?id=tech.logiclinkeg.app" {
+		t.Errorf("download_url not forwarded: %+v", gateway.gotBody)
+	}
+}
+
 func TestSubscriptionQueue_ForwardsToUserService(t *testing.T) {
 	stub := &upstreamStub{t: t, statusCode: http.StatusOK,
 		responseBytes: []byte(`{"queue":[{"id":"sub-771","tenant_id":"tenant-cairo-express","requested_plan":"pro"}],"total":1,"page":1,"limit":20}`)}

@@ -14,7 +14,9 @@ func testHandler(t *testing.T, upstream http.HandlerFunc) http.Handler {
 	t.Helper()
 	srv := httptest.NewServer(upstream)
 	t.Cleanup(srv.Close)
-	p := proxy.NewWithServices("internal-test", srv.URL, srv.URL, srv.URL, srv.Client())
+	// Every service (auth, user, chat, notification, gateway) points at the
+	// same stub so a route's upstream path can be asserted.
+	p := proxy.NewWithAllServices("internal-test", srv.URL, srv.URL, srv.URL, srv.URL, srv.URL, srv.Client())
 	return newHandler(p, "../../web")
 }
 
@@ -179,6 +181,42 @@ func TestRoutes_JobPathParamsReachUpstream(t *testing.T) {
 	}
 	if gotMethod != http.MethodPost {
 		t.Errorf("upstream method = %q, want POST", gotMethod)
+	}
+}
+
+func TestRoutes_AuditAndVersionReachTheirServices(t *testing.T) {
+	var gotPath string
+	var gotMethod string
+	h := testHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	if got := serve(h, http.MethodGet, "/api/audit?action=job.cancel").Code; got != http.StatusOK {
+		t.Errorf("GET /api/audit = %d, want 200", got)
+	}
+	if gotPath != "/admin/audit" {
+		t.Errorf("upstream path = %q, want /admin/audit", gotPath)
+	}
+
+	if got := serve(h, http.MethodGet, "/api/version").Code; got != http.StatusOK {
+		t.Errorf("GET /api/version = %d, want 200", got)
+	}
+	if gotPath != "/admin/version" {
+		t.Errorf("upstream path = %q, want /admin/version", gotPath)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/version", strings.NewReader(`{"reason":"security patch","latest_version":"1.5.2"}`))
+	req.Header.Set("X-Reviewer-Token", "rev-test")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("PUT /api/version = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if gotMethod != http.MethodPut {
+		t.Errorf("upstream method = %q, want PUT", gotMethod)
 	}
 }
 

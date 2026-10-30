@@ -21,8 +21,10 @@ import * as disputes from './pages/disputes.js';
 import * as subscriptions from './pages/subscriptions.js';
 import * as tickets from './pages/tickets.js';
 import * as payouts from './pages/payouts.js';
+import * as audit from './pages/audit.js';
+import * as versions from './pages/versions.js';
 
-const pages = { overview, kyc, accounts, jobs, services, kycdocs, disputes, subscriptions, tickets, payouts };
+const pages = { overview, kyc, accounts, jobs, services, kycdocs, disputes, subscriptions, tickets, payouts, audit, versions };
 
 // Tab definitions mirror the old switchTab(): one visible section at a time
 // plus a data load per activation.
@@ -36,6 +38,8 @@ const tabs = {
   subscriptions: { section: 'subscriptions-section', btn: 'tab-subscriptions-btn', load: () => subscriptions.loadSubscriptionQueue() },
   tickets: { section: 'tickets-section', btn: 'tab-tickets-btn', load: () => tickets.loadTickets() },
   payouts: { section: 'payouts-section', btn: 'tab-payouts-btn', load: () => payouts.loadPayouts() },
+  audit: { section: 'audit-section', btn: 'tab-audit-btn', load: () => audit.loadAudit() },
+  versions: { section: 'versions-section', btn: 'tab-versions-btn', load: () => versions.loadVersions() },
 };
 
 // Shell strings (nav, header, login area). Page modules add their own areas
@@ -53,6 +57,8 @@ function addShellTranslations() {
       subscriptions: 'الاشتراكات',
       tickets: 'تذاكر الدعم',
       payouts: 'طلبات الصرف',
+      audit: 'سجل التدقيق',
+      versions: 'إصدارات التطبيق',
     },
     en: {
       overview: 'Overview',
@@ -64,6 +70,8 @@ function addShellTranslations() {
       subscriptions: 'Subscriptions',
       tickets: 'Support Tickets',
       payouts: 'Payout Requests',
+      audit: 'Audit log',
+      versions: 'App versions',
     },
   });
   i18n.addTranslations('shell', {
@@ -245,5 +253,5 @@ export function boot() {
   bootstrapSession();
 }
 
-export { overview, kyc, accounts, jobs, services, kycdocs, disputes, subscriptions, tickets, payouts, tabs };
+export { overview, kyc, accounts, jobs, services, kycdocs, disputes, subscriptions, tickets, payouts, audit, versions, tabs };
 export { openDialog };
