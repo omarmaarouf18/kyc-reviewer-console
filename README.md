@@ -29,7 +29,10 @@ Browser-side and proxy-side hardening (CONSOLE-SEC). Keep these rules when chang
 - **Content-Security-Policy** on every response (`cmd/server/routes.go`):
   `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self' wss://<host>; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`
   (`ws://<host>` is added on plain HTTP for local dev). No inline `<script>`, `on*=` handler or `style="..."` attribute is possible — put code in the `web/js/` ES modules and styles in `style.css`.
-- **Other headers**: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `X-Frame-Options: DENY`, and `Cache-Control: no-store` on `/api/*`. Only `/`, `/index.html`, `/style.css`, an explicit allow-list of `web/js/` ES modules and the four bundled `web/fonts/*.woff2` files (IBM Plex Sans Arabic, OFL license in `web/fonts/`) are served from `web/`; CSP pins `font-src 'self'`.
+- **Other headers**: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, and `X-Frame-Options: DENY`.
+- **Cache-Control & strong ETags (CONSOLE-CACHE)**:
+  - `/api/*`: `Cache-Control: no-store` ensures sensitive administrative data, tokens, and audit responses are never cached on disk.
+  - Static UI assets (`/`, `/index.html`, `/style.css`, all `web/js/**` ES modules, and `/fonts/*.woff2`): `Cache-Control: no-cache` with a content-based strong `ETag` (`"<hex>"`, first 16 hex characters of SHA-256 computed at startup). Because the native ES modules import each other directly without content hashes in their file names, `no-cache` forces browsers to revalidate with the server before every use (answering with `304 Not Modified` when unchanged), preventing heuristic cache skew across deployments (e.g. running old `main.js` against new page modules). Only files in the explicit allow-list in `cmd/server/routes.go` are served; CSP pins `font-src 'self'`.
 - **Documents & attachments** open from `blob:` URLs, which run in the console origin, so `safeBlobUrl()` renders only JPEG/PNG/GIF/WebP/PDF inline; any other type is handed over as a download.
 - **Session**: idle sign-out after 30 minutes without pointer/keyboard activity (`IDLE_TIMEOUT_MS` in `web/js/core/session.js`). A 401 from any call, the idle timeout and "Sign out" all clear `sessionStorage`, close the chat socket and remove rendered reviewer data. The reviewer token is never put in a URL or logged: the chat WebSocket offers it as a subprotocol (`kyc-console-auth, <token>`) and the proxy adds the `?token=` that chat-service requires server-side.
 - **Proxy limits**: JSON POST bodies ≤ 64 KB, ticket attachments ≤ 10 MB (413 above); each route accepts only its listed methods (405 + `Allow`); upstream error bodies are reduced to the `{"error","message","code","request_id"}` contract, anything else becomes `{"error":"upstream error"}`.
@@ -74,6 +77,8 @@ export PORT=8090                                 # default
 go run ./cmd/server
 # open http://localhost:8090
 ```
+
+ETags are computed at startup, restart the server after editing web/ files.
 
 Optional mTLS to downstream services (matches saas-core services):
 set `TLS_CERT_PATH`, `TLS_KEY_PATH`, `TLS_CA_PATH`.

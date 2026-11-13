@@ -371,3 +371,131 @@ func TestRoutes_AdminPayoutAliasesRemoved(t *testing.T) {
 		t.Errorf("removed aliases reached upstream %d times", upstreamCalls)
 	}
 }
+
+func TestStatic_RevalidateAndETag(t *testing.T) {
+	h := testHandler(t, func(http.ResponseWriter, *http.Request) {})
+	etagRe := regexp.MustCompile(`^"[0-9a-f]{16}"$`)
+
+	for target := range staticFiles {
+		// http.ServeFile canonicalises /index.html to ./ with a redirect.
+		if target == "/index.html" {
+			rec := serve(h, http.MethodGet, target)
+			if rec.Code != http.StatusMovedPermanently {
+				t.Errorf("GET %s = %d, want 301", target, rec.Code)
+			}
+			if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+				t.Errorf("GET %s Cache-Control = %q, want no-cache", target, got)
+			}
+			if etag := rec.Header().Get("ETag"); !etagRe.MatchString(etag) {
+				t.Errorf("GET %s ETag = %q, want quoted 16-hex hash", target, etag)
+			}
+			continue
+		}
+
+		// Initial GET should return 200 with Cache-Control: no-cache and quoted ETag.
+		rec := serve(h, http.MethodGet, target)
+		if rec.Code != http.StatusOK {
+			t.Errorf("GET %s = %d, want 200", target, rec.Code)
+		}
+		if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+			t.Errorf("GET %s Cache-Control = %q, want no-cache", target, got)
+		}
+		etag := rec.Header().Get("ETag")
+		if !etagRe.MatchString(etag) {
+			t.Errorf("GET %s ETag = %q, want quoted 16-hex hash", target, etag)
+		}
+
+		// Repeat GET with If-None-Match should answer 304 with no body.
+		req304 := httptest.NewRequest(http.MethodGet, target, nil)
+		req304.Header.Set("X-Reviewer-Token", "rev-test")
+		req304.Header.Set("If-None-Match", etag)
+		rec304 := httptest.NewRecorder()
+		h.ServeHTTP(rec304, req304)
+
+		if rec304.Code != http.StatusNotModified {
+			t.Errorf("GET %s with If-None-Match: %s = %d, want 304", target, etag, rec304.Code)
+		}
+		if rec304.Body.Len() != 0 {
+			t.Errorf("GET %s 304 response body has %d bytes, want 0", target, rec304.Body.Len())
+		}
+		if got := rec304.Header().Get("Cache-Control"); got != "no-cache" {
+			t.Errorf("GET %s 304 Cache-Control = %q, want no-cache", target, got)
+		}
+		if got := rec304.Header().Get("ETag"); got != etag {
+			t.Errorf("GET %s 304 ETag = %q, want %q", target, got, etag)
+		}
+	}
+}
+
+func TestStatic_ChangedFileDifferentETag(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "style.css")
+	if err := os.WriteFile(filePath, []byte("body { color: #0D1321; }"), 0600); err != nil {
+		t.Fatalf("failed to write initial style.css: %v", err)
+	}
+
+	h1 := staticHandler(tmpDir)
+	rec1 := httptest.NewRecorder()
+	h1.ServeHTTP(rec1, httptest.NewRequest(http.MethodGet, "/style.css", nil))
+	etag1 := rec1.Header().Get("ETag")
+	if etag1 == "" {
+		t.Fatal("expected ETag for initial file, got empty")
+	}
+
+	// Change file content
+	if err := os.WriteFile(filePath, []byte("body { color: #FFC107; font-size: 16px; }"), 0600); err != nil {
+		t.Fatalf("failed to write modified style.css: %v", err)
+	}
+
+	h2 := staticHandler(tmpDir)
+	rec2 := httptest.NewRecorder()
+	h2.ServeHTTP(rec2, httptest.NewRequest(http.MethodGet, "/style.css", nil))
+	etag2 := rec2.Header().Get("ETag")
+	if etag2 == "" {
+		t.Fatal("expected ETag for modified file, got empty")
+	}
+
+	if etag1 == etag2 {
+		t.Fatalf("expected changed file content to give different ETag, got %s == %s", etag1, etag2)
+	}
+}
+
+func TestStatic_SecurityHeadersAndCacheControl(t *testing.T) {
+	h := testHandler(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	// /api/* endpoints must still send Cache-Control: no-store
+	for _, apiTarget := range []string{"/api/overview", "/api/queue", "/api/jobs", "/api/accounts"} {
+		rec := serve(h, http.MethodGet, apiTarget)
+		if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+			t.Errorf("%s Cache-Control = %q, want no-store", apiTarget, got)
+		}
+	}
+
+	// Static responses must carry existing security headers as well as Cache-Control: no-cache
+	for _, staticTarget := range []string{"/", "/style.css", "/js/boot.js", "/fonts/IBMPlexSansArabic-Regular.woff2"} {
+		rec := serve(h, http.MethodGet, staticTarget)
+		hdr := rec.Header()
+
+		if got := hdr.Get("Cache-Control"); got != "no-cache" {
+			t.Errorf("%s Cache-Control = %q, want no-cache", staticTarget, got)
+		}
+		if got := hdr.Get("X-Content-Type-Options"); got != "nosniff" {
+			t.Errorf("%s X-Content-Type-Options = %q, want nosniff", staticTarget, got)
+		}
+		if got := hdr.Get("Referrer-Policy"); got != "no-referrer" {
+			t.Errorf("%s Referrer-Policy = %q, want no-referrer", staticTarget, got)
+		}
+		if got := hdr.Get("Permissions-Policy"); got != "camera=(), microphone=(), geolocation=()" {
+			t.Errorf("%s Permissions-Policy = %q", staticTarget, got)
+		}
+		if got := hdr.Get("X-Frame-Options"); got != "DENY" {
+			t.Errorf("%s X-Frame-Options = %q, want DENY", staticTarget, got)
+		}
+		if csp := hdr.Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'self'") {
+			t.Errorf("%s CSP missing default-src: %q", staticTarget, csp)
+		}
+	}
+}
