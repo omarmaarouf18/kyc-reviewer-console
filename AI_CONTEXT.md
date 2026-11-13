@@ -45,7 +45,7 @@ rebuilt as a twelve-page ops console by CONSOLE-V2.
 - CI: `.github/workflows/ci.yml` (gofmt, build, vet, test, web tests, gosec);
   `.github/workflows/contract-sync.yml` responding to saas-core's `reviewer-api-contract` repository_dispatch.
 - `scripts/smoke.mjs` — dependency-free browser smoke test (real Go binary + stub upstream + headless Chrome over CDP): 24 checks, writes `docs/screens/console-ar-light.png` and `docs/screens/console-en-dark.png`.
-- `docs/worklog/` — `CONSOLE-SEC.md` (the hardening pass) and `CONSOLE-V2.md` (the rebuild: the item table, the verification output and the endpoint-differences table against saas-core's `ADMIN_API.md`).
+- `docs/worklog/` — `CONSOLE-SEC.md` (the hardening pass), `CONSOLE-V2.md` (the rebuild), and `CONSOLE-CACHE.md` (static revalidation and strong ETags).
 
 ## Recent Changes
 
@@ -72,6 +72,11 @@ rebuilt as a twelve-page ops console by CONSOLE-V2.
   different ETags, and `/api/*` keeps `no-store` while static files carry all
   security headers. Browser smoke suite (`scripts/smoke.mjs`, 24 checks) passes
   unmodified.
+- **Item 4 (Documentation & deploy notes)**: `README.md` Security section and this
+  file updated with caching rationale and invariants; created
+  `docs/worklog/CONSOLE-CACHE.md` detailing the browser heuristic cache root cause,
+  startup vs request-time missing file choice, verification outputs, and VM/Caddy
+  deployment notes.
 
 ### CONSOLE-V2 item 10: audit viewer and app version policy
 
