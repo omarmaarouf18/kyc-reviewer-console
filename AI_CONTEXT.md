@@ -64,6 +64,14 @@ rebuilt as a twelve-page ops console by CONSOLE-V2.
   automatically, answering with `304 Not Modified` and no body. If a file is
   missing on disk at startup, it is omitted from the cache and continues to 404
   at request time via `ServeFile`.
+- **Item 3 (Tests)**: Unit tests in `cmd/server/routes_test.go`
+  (`TestStatic_RevalidateAndETag`, `TestStatic_ChangedFileDifferentETag`,
+  `TestStatic_SecurityHeadersAndCacheControl`) verify that every static path
+  answers with `Cache-Control: no-cache` and a quoted 16-hex ETag, repeat requests
+  with `If-None-Match` answer 304 with an empty body, changed file contents yield
+  different ETags, and `/api/*` keeps `no-store` while static files carry all
+  security headers. Browser smoke suite (`scripts/smoke.mjs`, 24 checks) passes
+  unmodified.
 
 ### CONSOLE-V2 item 10: audit viewer and app version policy
 
