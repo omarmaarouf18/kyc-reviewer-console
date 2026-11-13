@@ -77,6 +77,10 @@ rebuilt as a twelve-page ops console by CONSOLE-V2.
   `docs/worklog/CONSOLE-CACHE.md` detailing the browser heuristic cache root cause,
   startup vs request-time missing file choice, verification outputs, and VM/Caddy
   deployment notes.
+- **Fix-up (gosec & local dev docs)**: `staticETags` reads through `fs.ReadFile(os.DirFS(webDir), relPath)`
+  scoping reads to the web root, eliminating gosec G304 (file inclusion) findings
+  without needing `#nosec`. Added notice in `README.md` local development section
+  that ETags are computed once at startup, requiring server restart after editing `web/`.
 
 ### CONSOLE-V2 item 10: audit viewer and app version policy
 

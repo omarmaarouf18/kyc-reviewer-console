@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -146,11 +147,12 @@ var staticFiles = map[string]string{
 // through http.ServeFile, preserving existing missing-file behaviour.
 func staticETags(webDir string) map[string]string {
 	contentHashes := make(map[string]string)
+	subFS := os.DirFS(webDir)
 	for _, relPath := range staticFiles {
 		if _, exists := contentHashes[relPath]; exists {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(webDir, relPath))
+		data, err := fs.ReadFile(subFS, relPath)
 		if err != nil {
 			continue
 		}

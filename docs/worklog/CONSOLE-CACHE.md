@@ -24,6 +24,7 @@ Following the CONSOLE-V2 deployment, the ops console booted successfully in some
 | 2 | Strong ETag from file content | Done | Strong ETag (`"<hex>"`, first 16 hex chars of content SHA-256) computed at startup |
 | 3 | Tests | Done | Route tests for 200, 304, changed file ETags, and security header preservation; smoke test passes |
 | 4 | Docs & Worklog | Done | README Security section, `AI_CONTEXT.md`, and this worklog |
+| Fix-up | Gosec G304 fix & local dev note | Done | Scoped file reading via `fs.ReadFile(os.DirFS(webDir), relPath)`; README local dev restart note |
 
 ---
 
@@ -46,6 +47,10 @@ Following the CONSOLE-V2 deployment, the ops console booted successfully in some
   1. *Backward compatibility*: Today, any missing file under `staticFiles` 404s at request time.
   2. *Testing flexibility*: Tests using temporary directories (e.g., `TestStatic_ChangedFileDifferentETag`) only populate files under test, rather than needing all 35 static assets.
   3. *Production safety*: Static asset completeness is strictly asserted at build/CI time by `TestStatic_EveryImportedModuleIsServed`, which walks the entire ES module graph and verifies that all referenced files exist on disk.
+
+### 4. Gosec G304 Resolution & Scoped FS
+- `os.ReadFile(filepath.Join(webDir, relPath))` was flagged by `gosec ./...` as G304 (file inclusion via variable).
+- Replaced with `fs.ReadFile(os.DirFS(webDir), relPath)` using the Go `io/fs` package. Scoping reads under `os.DirFS(webDir)` prevents directory traversal, satisfying `gosec ./...` with 0 issues without requiring `#nosec` pragmas.
 
 ---
 
@@ -199,6 +204,28 @@ ok   no console error, exception or CSP violation was logged
 
 24 checks passed, 0 failed
 screenshots: docs/screens/console-ar-light.png, docs/screens/console-en-dark.png
+```
+
+### 6. `gosec ./...`
+```
+[gosec] Including rules: default
+[gosec] Excluding rules: default
+[gosec] Including analyzers: default
+[gosec] Excluding analyzers: default
+[gosec] Import directory: ./cmd/server
+[gosec] Import directory: ./internal/config
+[gosec] Import directory: ./internal/proxy
+[gosec] Checking package: config
+[gosec] Checking package: proxy
+[gosec] Checking package: main
+Results:
+
+Summary:
+  Gosec  : dev
+  Files  : 4
+  Lines  : 1832
+  Nosec  : 11
+  Issues : 0
 ```
 
 ---

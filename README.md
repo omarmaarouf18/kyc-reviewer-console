@@ -78,6 +78,8 @@ go run ./cmd/server
 # open http://localhost:8090
 ```
 
+ETags are computed at startup, restart the server after editing web/ files.
+
 Optional mTLS to downstream services (matches saas-core services):
 set `TLS_CERT_PATH`, `TLS_KEY_PATH`, `TLS_CA_PATH`.
 
