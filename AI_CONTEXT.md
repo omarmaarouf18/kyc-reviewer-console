@@ -57,6 +57,13 @@ rebuilt as a twelve-page ops console by CONSOLE-V2.
   to revalidate cached assets with the server before every use, preventing
   heuristic stale cache execution across deployments while preserving 304
   caching benefits. API responses (`/api/*`) maintain `Cache-Control: no-store`.
+- **Item 2 (Strong content ETags)**: Strong ETags (`"<hex>"`, first 16 hex
+  characters of content SHA-256) are computed once at startup for every
+  `staticFiles` entry (`staticETags`) and set on the response before
+  calling `http.ServeFile`. `ServeFile` handles `If-None-Match` preconditions
+  automatically, answering with `304 Not Modified` and no body. If a file is
+  missing on disk at startup, it is omitted from the cache and continues to 404
+  at request time via `ServeFile`.
 
 ### CONSOLE-V2 item 10: audit viewer and app version policy
 

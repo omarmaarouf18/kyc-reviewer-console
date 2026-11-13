@@ -1,7 +1,11 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -136,7 +140,35 @@ var staticFiles = map[string]string{
 	"/fonts/IBMPlexSansArabic-Bold.woff2":     "fonts/IBMPlexSansArabic-Bold.woff2",
 }
 
+// staticETags computes the strong ETag (SHA-256 first 16 hex characters, quoted)
+// for every entry in staticFiles. Files are read once at startup. If a file is
+// missing on disk, it is omitted from the cache so that it 404s at request time
+// through http.ServeFile, preserving existing missing-file behaviour.
+func staticETags(webDir string) map[string]string {
+	contentHashes := make(map[string]string)
+	for _, relPath := range staticFiles {
+		if _, exists := contentHashes[relPath]; exists {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(webDir, relPath))
+		if err != nil {
+			continue
+		}
+		sum := sha256.Sum256(data)
+		contentHashes[relPath] = fmt.Sprintf("%q", hex.EncodeToString(sum[:])[:16])
+	}
+
+	etags := make(map[string]string, len(staticFiles))
+	for urlPath, relPath := range staticFiles {
+		if etag, ok := contentHashes[relPath]; ok {
+			etags[urlPath] = etag
+		}
+	}
+	return etags
+}
+
 func staticHandler(webDir string) http.Handler {
+	etags := staticETags(webDir)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name, ok := staticFiles[r.URL.Path]
 		if !ok {
@@ -149,6 +181,9 @@ func staticHandler(webDir string) http.Handler {
 			return
 		}
 		w.Header().Set("Cache-Control", "no-cache")
+		if etag, ok := etags[r.URL.Path]; ok {
+			w.Header().Set("ETag", etag)
+		}
 		http.ServeFile(w, r, filepath.Join(webDir, name))
 	})
 }
