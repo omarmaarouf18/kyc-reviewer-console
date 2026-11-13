@@ -40,7 +40,7 @@ rebuilt as a twelve-page ops console by CONSOLE-V2.
   8. App Version Policy (`/api/version`): proxying to the `api-gateway` over `GATEWAY_INTERNAL_URL` (`GET|PUT /admin/version`); the reason is validated locally (1-1000 chars) and the policy fields are forwarded untouched. The gateway only answers on the internal network and only with the internal-CA client certificate.
   9. Admin Announcements (`/api/notifications/send`, `/api/notifications/sends`, `/api/notifications/sends/{id}`): proxying to `notification-service` (`/admin/notifications/send`, `/admin/notifications/sends`, `/admin/notifications/sends/{id}`). The reason, the bilingual title/body, the deep link and the audience selection are validated locally (the service's own contract); the service owns the audience lookup, the fan-out, the idempotency replay and the 5-sends-per-hour rate limit.
   All destructive and override operations enforce local input validation (mandatory reasons, 1–1000 characters) before forwarding to upstream services.
-- `cmd/server` — HTTP server with timeouts, CR/LF-sanitized logging, static UI serving, and route registration for all `/api/*` endpoints.
+- `cmd/server` — HTTP server with timeouts, CR/LF-sanitized logging, static UI serving with revalidation (`Cache-Control: no-cache`), and route registration for all `/api/*` endpoints (`Cache-Control: no-store`).
 - `web/` — vanilla UI as native ES modules under `web/js/` (`web/index.html` wiring `web/js/boot.js`; `web/js/core/` incl. `theme.js` (light/dark, `console_theme`) and `i18n.js` (Arabic default/RTL, English, `console_lang`; header toggles); bundled IBM Plex Sans Arabic woff2 in `web/fonts/`; `web/style.css` is token-based (navy #0D1321, gold #FFC107; light/dark via `html[data-theme]`); no build step; `web/js/pages/overview.js` renders `GET /api/overview` counters, the landing page of the console; `web/js/pages/kyc.js` is the queue list + review side panel with keyboard shortcuts (arrows/j/k, Enter, a, r, Esc, ?); `web/js/pages/accounts.js` is the accounts list + account drawer; `web/js/pages/jobs.js` is the jobs search + detail dialog with cancel / complete-stuck-COD (`/api/jobs/{id}`); `web/js/pages/services.js` is the marketplace moderation list with hide / unhide / photo-removal actions; `web/js/pages/subscriptions.js` is queue-first (upgrade queue default, all subscriptions second view; activation posts `{tenant_id, subscription_id, duration_days}`); `web/js/pages/disputes.js`, `tickets.js` and `payouts.js` share the console UI kit (core/ui/table.js, core/ui/dialog.js, core/ui/toast.js) with AR/EN strings; `web/js/core/cod-banner.js` renders the shell-level stuck-COD banner (overview `stuck_cod_jobs`); `web/js/pages/audit.js` is the merged audit viewer (filters by actor/action/target/date plus the per-source status strip); `web/js/pages/versions.js` shows the app version policy card and its update dialog (`PUT /api/version`, mandatory reason); `web/js/pages/notifications.js` is the announcement composer (audience/title/body/deep link/reason, dry run, test user, confirmed audience size, idempotency key) plus the send history and its detail dialog; `core/i18n.js` flattens nested translation groups into dotted keys) with tab-scoped session auth, search toolbars, status filters, pagination controls, dynamic badge counters, and action dialog modals.
 - CI: `.github/workflows/ci.yml` (gofmt, build, vet, test, web tests, gosec);
   `.github/workflows/contract-sync.yml` responding to saas-core's `reviewer-api-contract` repository_dispatch.
@@ -48,6 +48,15 @@ rebuilt as a twelve-page ops console by CONSOLE-V2.
 - `docs/worklog/` — `CONSOLE-SEC.md` (the hardening pass) and `CONSOLE-V2.md` (the rebuild: the item table, the verification output and the endpoint-differences table against saas-core's `ADMIN_API.md`).
 
 ## Recent Changes
+
+### CONSOLE-CACHE: static asset revalidation and content ETags
+
+- **Item 1 (Static revalidation)**: Every static UI response served by
+  `staticHandler` (`index.html`, `style.css`, every `/js/**` module, and
+  woff2 fonts) now sets `Cache-Control: no-cache`. This instructs browsers
+  to revalidate cached assets with the server before every use, preventing
+  heuristic stale cache execution across deployments while preserving 304
+  caching benefits. API responses (`/api/*`) maintain `Cache-Control: no-store`.
 
 ### CONSOLE-V2 item 10: audit viewer and app version policy
 
